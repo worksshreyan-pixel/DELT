@@ -1,28 +1,28 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { useState } from 'react';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard,
   FolderKanban,
-  Users,
-  FileStack,
-  Receipt,
   HardDrive,
   Settings,
   Bell,
+  Search,
   Menu,
   X,
-  Search,
   ChevronRight,
-  MessageSquare,
+  Sparkles,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
   ArrowLeftRight,
-  CreditCard,
-  Upload,
   FileCheck,
   Flag,
-  CheckCircle2,
+  CreditCard,
+  LogOut,
+  User as UserIcon,
 } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
@@ -30,27 +30,26 @@ import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { UsageMeter } from '@/components/usage-meter';
 import { cn } from '@/lib/utils';
-import { CURRENT_USER, DEMO_CREDITS, DEMO_STORAGE, DEMO_NOTIFICATIONS } from '@/lib/demo-data';
-import { PLANS, formatBytes } from '@/lib/plans';
-import type { NotificationType } from '@/lib/types';
+import { PLANS } from '@/lib/plans';
+import { useAppStore, clearStoreState } from '@/lib/app-store';
+import { useUser } from '@/hooks/use-user';
+import type { AppNotification } from '@/lib/types';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/deals', label: 'Deals', icon: FolderKanban },
-  { href: '/clients', label: 'Clients', icon: Users },
-  { href: '/templates', label: 'Templates', icon: FileStack },
-  { href: '/transactions', label: 'Transactions', icon: Receipt },
+  { href: '/clients', label: 'Clients', icon: UserIcon },
   { href: '/storage', label: 'Storage', icon: HardDrive },
-  { href: '/notifications', label: 'Notifications', icon: Bell },
+  { href: '/transactions', label: 'Transactions', icon: CreditCard },
   { href: '/settings', label: 'Settings', icon: Settings },
 ];
 
-const notifTypeConfig: Record<NotificationType, { icon: React.ElementType; color: string }> = {
-  new_message: { icon: MessageSquare, color: 'text-blue-500 bg-blue-50 dark:bg-blue-950' },
-  new_proposal: { icon: ArrowLeftRight, color: 'text-amber-500 bg-amber-50 dark:bg-amber-950' },
-  counter_offer: { icon: ArrowLeftRight, color: 'text-amber-500 bg-amber-50 dark:bg-amber-950' },
+const notifTypeConfig: Record<AppNotification['type'], { icon: typeof Bell; color: string }> = {
+  new_message: { icon: Bell, color: 'text-blue-500 bg-blue-50 dark:bg-blue-950' },
+  new_proposal: { icon: ArrowLeftRight, color: 'text-primary bg-primary/10' },
+  counter_offer: { icon: ArrowLeftRight, color: 'text-primary bg-primary/10' },
   payment_received: { icon: CreditCard, color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950' },
-  file_uploaded: { icon: Upload, color: 'text-indigo-500 bg-indigo-50 dark:bg-indigo-950' },
+  file_uploaded: { icon: FileCheck, color: 'text-blue-500 bg-blue-50 dark:bg-blue-950' },
   deliverable_approved: { icon: FileCheck, color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950' },
   change_request: { icon: Flag, color: 'text-orange-500 bg-orange-50 dark:bg-orange-950' },
   deal_completed: { icon: CheckCircle2, color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950' },
@@ -69,15 +68,39 @@ function formatRelativeTime(iso: string): string {
   return 'Just now';
 }
 
-function getInitials(name: string) {
+function getInitials(name?: string) {
+  if (!name) return 'YA';
   return name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase();
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const store = useAppStore();
+  const { user, profile, signOut } = useUser();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
-  const unreadCount = DEMO_NOTIFICATIONS.filter((n) => !n.read).length;
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const unreadCount = store.notifications.filter((n) => !n.read).length;
+  const displayName = profile?.displayName || user?.user_metadata?.displayName || store.user.displayName || 'Creator';
+  const displayEmail = profile?.email || user?.email || store.user.email || '';
+
+  async function handleLogout() {
+    setLoggingOut(true);
+    try {
+      clearStoreState();
+      await signOut();
+      router.push('/login');
+      router.refresh();
+    } catch (err) {
+      console.error('Logout error:', err);
+      router.push('/login');
+    } finally {
+      setLoggingOut(false);
+    }
+  }
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -106,28 +129,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        {/* Bottom indicators */}
+
+        {/* Bottom indicators & User Account Section */}
         <div className="space-y-3 border-t border-border p-4">
-          <div className="flex items-center gap-2.5">
-            <Avatar className="h-8 w-8">
-              <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-                {getInitials(CURRENT_USER.displayName)}
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{CURRENT_USER.displayName}</p>
-              <p className="truncate text-xs text-muted-foreground">{PLANS[DEMO_CREDITS.planId].name} plan</p>
-            </div>
+          <div className="flex items-center justify-between">
+            <Link href="/settings" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0 flex-1">
+              <Avatar className="h-8 w-8 shrink-0">
+                <AvatarFallback className="bg-primary text-primary-foreground text-xs">
+                  {getInitials(displayName)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{displayName}</p>
+                <p className="truncate text-xs text-muted-foreground">{PLANS[store.credits.planId]?.name || 'Free'} plan</p>
+              </div>
+            </Link>
+            <button
+              onClick={handleLogout}
+              disabled={loggingOut}
+              title="Sign out"
+              className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
           </div>
+
           <UsageMeter
-            used={DEMO_STORAGE.totalBytes}
-            total={DEMO_STORAGE.limitBytes}
+            used={store.storage.totalBytes}
+            total={store.storage.limitBytes}
             label="Storage"
             unit="bytes"
           />
           <UsageMeter
-            used={DEMO_CREDITS.used}
-            total={DEMO_CREDITS.total}
+            used={store.credits.used}
+            total={store.credits.total}
             label="Deal credits"
             unit="count"
           />
@@ -167,19 +202,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               })}
             </nav>
             <div className="space-y-3 border-t border-border p-4">
-              <div className="flex items-center gap-2.5">
-                <Avatar className="h-8 w-8">
-                  <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-                    {getInitials(CURRENT_USER.displayName)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{CURRENT_USER.displayName}</p>
-                  <p className="truncate text-xs text-muted-foreground">{PLANS[DEMO_CREDITS.planId].name} plan</p>
-                </div>
+              <div className="flex items-center justify-between">
+                <Link href="/settings" onClick={() => setMobileOpen(false)} className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0 flex-1">
+                  <Avatar className="h-8 w-8 shrink-0">
+                    <AvatarFallback className="bg-primary text-primary-foreground text-xs">
+                      {getInitials(displayName)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{displayName}</p>
+                    <p className="truncate text-xs text-muted-foreground">{PLANS[store.credits.planId]?.name || 'Free'} plan</p>
+                  </div>
+                </Link>
+                <button
+                  onClick={handleLogout}
+                  disabled={loggingOut}
+                  className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                >
+                  <LogOut className="h-4 w-4" />
+                </button>
               </div>
-              <UsageMeter used={DEMO_STORAGE.totalBytes} total={DEMO_STORAGE.limitBytes} label="Storage" unit="bytes" />
-              <UsageMeter used={DEMO_CREDITS.used} total={DEMO_CREDITS.total} label="Deal credits" unit="count" />
+              <UsageMeter used={store.storage.totalBytes} total={store.storage.limitBytes} label="Storage" unit="bytes" />
+              <UsageMeter used={store.credits.used} total={store.credits.total} label="Deal credits" unit="count" />
             </div>
           </aside>
         </div>
@@ -218,39 +262,82 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       </Link>
                     </div>
                     <div className="max-h-80 overflow-y-auto scrollbar-thin">
-                      {DEMO_NOTIFICATIONS.slice(0, 5).map((n) => {
-                        const cfg = notifTypeConfig[n.type];
-                        return (
-                          <Link
-                            key={n.id}
-                            href={n.dealId ? `/deals/${n.dealId}` : '/notifications'}
-                            onClick={() => setNotifOpen(false)}
-                            className={cn('flex items-start gap-3 border-b border-border p-3 last:border-0 hover:bg-accent/30 transition-colors', !n.read && 'bg-primary/[0.02]')}
-                          >
-                            <div className={cn('flex h-8 w-8 items-center justify-center rounded-lg shrink-0', cfg.color)}>
-                              <cfg.icon className="h-3.5 w-3.5" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs font-medium truncate">{n.title}</p>
-                              <p className="text-xs text-muted-foreground truncate mt-0.5">{n.description}</p>
-                              <p className="text-xs text-muted-foreground/50 mt-0.5">{formatRelativeTime(n.createdAt)}</p>
-                            </div>
-                            {!n.read && <span className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1" />}
-                          </Link>
-                        );
-                      })}
+                      {store.notifications.length === 0 ? (
+                        <div className="p-4 text-center text-xs text-muted-foreground">
+                          No notifications yet
+                        </div>
+                      ) : (
+                        store.notifications.slice(0, 5).map((n) => {
+                          const cfg = notifTypeConfig[n.type];
+                          return (
+                            <Link
+                              key={n.id}
+                              href={n.dealId ? `/deals/${n.dealId}` : '/notifications'}
+                              onClick={() => setNotifOpen(false)}
+                              className={cn('flex items-start gap-3 border-b border-border p-3 last:border-0 hover:bg-accent/30 transition-colors', !n.read && 'bg-primary/[0.02]')}
+                            >
+                              <div className={cn('flex h-8 w-8 items-center justify-center rounded-lg shrink-0', cfg.color)}>
+                                <cfg.icon className="h-3.5 w-3.5" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-medium truncate">{n.title}</p>
+                                <p className="text-xs text-muted-foreground truncate mt-0.5">{n.description}</p>
+                                <p className="text-xs text-muted-foreground/50 mt-0.5">{formatRelativeTime(n.createdAt)}</p>
+                              </div>
+                              {!n.read && <span className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1" />}
+                            </Link>
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 </>
               )}
             </div>
-            <Link href="/settings">
-              <Avatar className="h-8 w-8 cursor-pointer">
-                <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-                  {getInitials(CURRENT_USER.displayName)}
-                </AvatarFallback>
-              </Avatar>
-            </Link>
+
+            {/* Topbar User dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setUserMenuOpen(!userMenuOpen)}
+                className="flex items-center gap-2 rounded-full p-1 hover:bg-accent transition-colors"
+              >
+                <Avatar className="h-8 w-8 cursor-pointer">
+                  <AvatarFallback className="bg-primary text-primary-foreground text-xs">
+                    {getInitials(displayName)}
+                  </AvatarFallback>
+                </Avatar>
+              </button>
+
+              {userMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setUserMenuOpen(false)} />
+                  <div className="absolute right-0 top-full mt-2 z-50 w-56 rounded-xl border border-border bg-card shadow-lg p-1.5 space-y-1">
+                    <div className="px-3 py-2 border-b border-border">
+                      <p className="text-sm font-semibold truncate">{displayName}</p>
+                      <p className="text-xs text-muted-foreground truncate">{displayEmail}</p>
+                    </div>
+                    <Link
+                      href="/settings"
+                      onClick={() => setUserMenuOpen(false)}
+                      className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                    >
+                      <Settings className="h-3.5 w-3.5" />
+                      Settings & Profile
+                    </Link>
+                    <button
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        handleLogout();
+                      }}
+                      className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
+                    >
+                      <LogOut className="h-3.5 w-3.5" />
+                      Log out
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </header>
 

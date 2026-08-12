@@ -3,14 +3,14 @@
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Plus, Search, SlidersHorizontal, FolderKanban, ArrowUpDown } from 'lucide-react';
+import { Plus, Search, FolderKanban, ArrowUpDown } from 'lucide-react';
 import { PageHeader } from '@/components/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DealStatusBadge } from '@/components/deal-status-badge';
 import { EmptyState } from '@/components/empty-state';
-import { DEMO_DEALS, DEMO_CLIENTS } from '@/lib/demo-data';
+import { useAppStore } from '@/lib/app-store';
 import { formatCurrency } from '@/lib/plans';
 import type { DealStatus } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -28,18 +28,22 @@ const statusFilters: { label: string; value: DealStatus | 'all' }[] = [
 type SortKey = 'updated' | 'price' | 'deadline';
 
 export default function DealsPage() {
+  const store = useAppStore();
+  const deals = store.deals;
+  const clients = store.clients;
+
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<DealStatus | 'all'>('all');
   const [sort, setSort] = useState<SortKey>('updated');
 
   const filteredDeals = useMemo(() => {
-    let result = DEMO_DEALS;
+    let result = deals;
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(
         (d) =>
           d.title.toLowerCase().includes(q) ||
-          DEMO_CLIENTS.find((c) => c.id === d.clientId)?.name.toLowerCase().includes(q)
+          clients.find((c) => c.id === d.clientId)?.name.toLowerCase().includes(q)
       );
     }
     if (filter !== 'all') {
@@ -51,80 +55,82 @@ export default function DealsPage() {
       return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
     });
     return result;
-  }, [search, filter, sort]);
+  }, [deals, clients, search, filter, sort]);
 
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
         title="Deals"
-        description={`${DEMO_DEALS.length} total deals`}
+        description="Manage your private client Deals."
         action={
           <Link href="/deals/new">
             <Button className="gap-2">
               <Plus className="h-4 w-4" />
-              New Deal
+              Create Deal
             </Button>
           </Link>
         }
       />
 
-      {/* Filters */}
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search by deal or client..."
-            className="pl-9"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-thin">
-            {statusFilters.map((s) => (
-              <button
-                key={s.value}
-                onClick={() => setFilter(s.value)}
-                className={cn(
-                  'whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-                  filter === s.value
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted text-muted-foreground hover:bg-accent'
-                )}
-              >
-                {s.label}
-              </button>
-            ))}
+      {deals.length > 0 && (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search by deal title or client..."
+              className="pl-9"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
           </div>
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value as SortKey)}
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-          >
-            <option value="updated">Last updated</option>
-            <option value="price">Price</option>
-            <option value="deadline">Deadline</option>
-          </select>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-thin">
+              {statusFilters.map((s) => (
+                <button
+                  key={s.value}
+                  onClick={() => setFilter(s.value)}
+                  className={cn(
+                    'whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                    filter === s.value
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-muted-foreground hover:bg-accent'
+                  )}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as SortKey)}
+              className="h-9 rounded-md border border-input bg-background px-3 text-xs"
+            >
+              <option value="updated">Last updated</option>
+              <option value="price">Price</option>
+              <option value="deadline">Deadline</option>
+            </select>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Deal list */}
       {filteredDeals.length === 0 ? (
         <Card>
-          <CardContent>
+          <CardContent className="py-12">
             <EmptyState
               icon={FolderKanban}
-              title="No deals found"
-              description={search || filter !== 'all' ? "Try adjusting your filters." : "No active deals yet."}
-              actionLabel="Create your first Deal"
-              actionHref="/deals/new"
+              title={deals.length === 0 ? "No Deals yet" : "No matching Deals"}
+              description={deals.length === 0 ? "Create a private Deal to start working with a client." : "Try adjusting your search or filter settings."}
+              actionLabel={deals.length === 0 ? "Create your first Deal" : "Clear Filters"}
+              actionHref={deals.length === 0 ? "/deals/new" : undefined}
+              onAction={deals.length > 0 ? () => { setSearch(''); setFilter('all'); } : undefined}
             />
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-2">
           {filteredDeals.map((deal, i) => {
-            const client = DEMO_CLIENTS.find((c) => c.id === deal.clientId);
+            const client = clients.find((c) => c.id === deal.clientId);
             return (
               <motion.div
                 key={deal.id}
@@ -138,15 +144,18 @@ export default function DealsPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 mb-1">
                           <h3 className="font-semibold text-sm truncate">{deal.title}</h3>
+                          <DealStatusBadge status={deal.status} />
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          {client?.name} · {client?.company}
+                          {client?.name || 'Client'} {client?.company ? `· ${client.company}` : ''}
                         </p>
                       </div>
                       <div className="flex items-center gap-4 sm:gap-6">
                         <div className="text-right">
                           <p className="text-sm font-semibold">{formatCurrency(deal.price, deal.currency)}</p>
-                          <p className="text-xs text-muted-foreground">Due {new Date(deal.deadline || '').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Due {deal.deadline ? new Date(deal.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—'}
+                          </p>
                         </div>
                         <div className="hidden md:block w-20">
                           <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
@@ -154,7 +163,6 @@ export default function DealsPage() {
                           </div>
                           <p className="mt-1 text-xs text-muted-foreground text-right">{deal.progress}%</p>
                         </div>
-                        <DealStatusBadge status={deal.status} />
                       </div>
                     </CardContent>
                   </Card>

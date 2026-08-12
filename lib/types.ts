@@ -63,6 +63,7 @@ export type DealStatus =
   | 'paid'
   | 'delivered'
   | 'completed'
+  | 'closed'
   | 'cancelled';
 
 export type Currency = 'INR' | 'USD' | 'EUR' | 'GBP';
@@ -314,7 +315,8 @@ export type DealEventType =
   | 'payment_failed'
   | 'files_unlocked'
   | 'milestone_completed'
-  | 'project_completed';
+  | 'project_completed'
+  | 'deal_closed';
 
 export interface DealEvent {
   id: UUID;

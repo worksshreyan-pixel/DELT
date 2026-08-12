@@ -3,14 +3,19 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Mail, Lock, User, ArrowRight, Eye, EyeOff, Check } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, Eye, EyeOff, Check, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { createClient } from '@/lib/supabase/client';
+import { hasSupabasePublicConfig, env } from '@/lib/env';
 
 export default function SignupPage() {
   const router = useRouter();
+  const supabase = createClient();
+  const isConfigured = hasSupabasePublicConfig();
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,15 +23,19 @@ export default function SignupPage() {
   const [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [verificationSent, setVerificationSent] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState(false);
 
   const passwordChecks = [
     { label: 'At least 8 characters', met: password.length >= 8 },
     { label: 'Contains a number', met: /\d/.test(password) },
   ];
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+
     if (!name || !email || !password) {
       setError('Please fill in all fields.');
       return;
@@ -36,16 +45,126 @@ export default function SignupPage() {
       return;
     }
     if (!agreed) {
-      setError('Please accept the terms to continue.');
+      setError('Please accept the terms and privacy policy to continue.');
       return;
     }
+
     setLoading(true);
-    // Architecture prepared for Supabase Auth integration.
-    // This will call supabase.auth.signUp({ email, password, options: { data: { displayName: name } } }).
-    setTimeout(() => {
+
+    if (!isConfigured) {
+      setTimeout(() => {
+        setLoading(false);
+        router.push('/dashboard');
+      }, 500);
+      return;
+    }
+
+    try {
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          data: {
+            displayName: name.trim(),
+          },
+          emailRedirectTo: `${env.app.url}/auth/callback?next=/dashboard`,
+        },
+      });
+
+      if (signUpError) {
+        const msg = (signUpError.message || '').toLowerCase();
+        if (msg.includes('rate limit') || (signUpError as any).status === 429) {
+          setError('Too many verification attempts. Please wait before requesting another code.');
+        } else {
+          setError(signUpError.message);
+        }
+        setLoading(false);
+        return;
+      }
+
+      // If user is returned and session is established immediately (e.g. email confirmations disabled)
+      if (data.session) {
+        router.push('/dashboard');
+        router.refresh();
+        return;
+      }
+
+      // Email confirmation required
+      setVerificationSent(true);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to create account.');
+    } finally {
       setLoading(false);
-      router.push('/dashboard');
-    }, 600);
+    }
+  }
+
+  async function handleResend() {
+    if (!email) return;
+    setResending(true);
+    setResendSuccess(false);
+    setError('');
+    try {
+      const { error: resendErr } = await supabase.auth.resend({
+        type: 'signup',
+        email: email.trim(),
+        options: {
+          emailRedirectTo: `${env.app.url}/auth/callback?next=/dashboard`,
+        },
+      });
+      if (resendErr) {
+        const msg = (resendErr.message || '').toLowerCase();
+        if (msg.includes('rate limit') || (resendErr as any).status === 429) {
+          setError('Too many verification attempts. Please wait before requesting another code.');
+        } else {
+          setError(resendErr.message);
+        }
+      } else {
+        setResendSuccess(true);
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to resend verification email.');
+    } finally {
+      setResending(false);
+    }
+  }
+
+  if (verificationSent) {
+    return (
+      <div className="flex min-h-screen flex-col bg-muted/20">
+        <div className="flex flex-1 items-center justify-center px-4 py-12">
+          <div className="w-full max-w-md">
+            <div className="mb-8 flex justify-center">
+              <Logo size="lg" />
+            </div>
+            <div className="rounded-xl border border-border bg-card p-8 shadow-sm text-center space-y-4">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
+                <Mail className="h-7 w-7 text-primary" />
+              </div>
+              <h1 className="text-xl font-display font-semibold tracking-tight">Check your email</h1>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                We sent a verification link to <strong className="text-foreground">{email}</strong>. Please click the link to confirm your account and access your workspace.
+              </p>
+              {resendSuccess && (
+                <div className="flex items-center justify-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  <span>Verification email resent successfully!</span>
+                </div>
+              )}
+              <div className="pt-2 flex flex-col gap-2">
+                <Button variant="outline" onClick={handleResend} disabled={resending} className="w-full text-xs">
+                  {resending ? 'Resending email...' : 'Resend verification email'}
+                </Button>
+                <Link href="/login">
+                  <Button variant="ghost" className="w-full text-xs">
+                    Back to sign in
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -70,6 +189,7 @@ export default function SignupPage() {
                     className="pl-9"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
+                    required
                   />
                 </div>
               </div>
@@ -84,6 +204,7 @@ export default function SignupPage() {
                     className="pl-9"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
+                    required
                   />
                 </div>
               </div>
@@ -98,6 +219,7 @@ export default function SignupPage() {
                     className="pl-9 pr-9"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    required
                   />
                   <button
                     type="button"
@@ -128,12 +250,17 @@ export default function SignupPage() {
                   className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
                 />
                 <span className="text-xs text-muted-foreground">
-                  I agree to the{' '}
-                  <Link href="#" className="text-foreground hover:underline">Terms</Link> and{' '}
-                  <Link href="#" className="text-foreground hover:underline">Privacy Policy</Link>.
+                  I agree to the Terms and Privacy Policy.
                 </span>
               </label>
-              {error && <p className="text-sm text-destructive">{error}</p>}
+
+              {error && (
+                <div className="flex items-start gap-2 rounded-lg bg-destructive/10 p-3 text-xs text-destructive">
+                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>{error}</span>
+                </div>
+              )}
+
               <Button type="submit" className="w-full gap-2" disabled={loading}>
                 {loading ? 'Creating account...' : 'Create account'}
                 {!loading && <ArrowRight className="h-4 w-4" />}
@@ -145,9 +272,6 @@ export default function SignupPage() {
             <Link href="/login" className="font-medium text-foreground hover:underline">
               Log in
             </Link>
-          </p>
-          <p className="mt-4 text-center text-xs text-muted-foreground/60">
-            Demo mode — sign up will enter the workspace with demo data.
           </p>
         </div>
       </div>

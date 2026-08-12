@@ -1,6 +1,6 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import { Inter, Cal_Sans, JetBrains_Mono } from 'next/font/google';
+import { Inter, Plus_Jakarta_Sans, JetBrains_Mono } from 'next/font/google';
 import { ThemeProvider } from '@/components/theme-provider';
 
 const inter = Inter({
@@ -9,10 +9,10 @@ const inter = Inter({
   display: 'swap',
 });
 
-const cal = Cal_Sans({
+const cal = Plus_Jakarta_Sans({
   subsets: ['latin'],
   variable: '--font-cal',
-  weight: ['600'],
+  weight: ['500', '600', '700', '800'],
   display: 'swap',
 });
 

@@ -5,16 +5,19 @@ import type { PlanConfig, PlanId } from './types';
 // Centralized so pricing/limits can change without rewriting UI components.
 // ============================================================================
 
+export const FREE_PLAN_DEAL_LIMIT = Number(process.env.NEXT_PUBLIC_FREE_PLAN_DEAL_LIMIT || 50);
+export const FREE_PLAN_STORAGE_BYTES = Number(process.env.NEXT_PUBLIC_FREE_PLAN_STORAGE_BYTES || 5 * 1024 * 1024 * 1024); // 5 GB
+
 export const PLANS: Record<PlanId, PlanConfig> = {
   free: {
     id: 'free',
     name: 'Free',
-    description: 'For trying out DELT with your first client',
-    dealCredits: 1,
-    storageBytes: 1 * 1024 * 1024 * 1024, // 1 GB
+    description: 'For trying out DELT with your clients',
+    dealCredits: FREE_PLAN_DEAL_LIMIT,
+    storageBytes: FREE_PLAN_STORAGE_BYTES,
     features: [
-      '1 Deal credit',
-      '1 GB storage',
+      `${FREE_PLAN_DEAL_LIMIT} Deal credits`,
+      `${formatBytes(FREE_PLAN_STORAGE_BYTES)} storage`,
       'Private deal workspace',
       'Chat & negotiation',
       'Client portal link',
@@ -25,10 +28,10 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     name: 'Starter',
     description: 'For freelancers managing a few active clients',
     dealCredits: 10,
-    storageBytes: 5 * 1024 * 1024 * 1024, // 5 GB
+    storageBytes: 10 * 1024 * 1024 * 1024, // 10 GB
     features: [
       '10 Deal credits',
-      '5 GB storage',
+      '10 GB storage',
       'Private deal workspace',
       'Chat & negotiation',
       'Client portal link',
@@ -40,13 +43,13 @@ export const PLANS: Record<PlanId, PlanConfig> = {
   },
   creator: {
     id: 'creator',
-    name: 'Creator',
+    name: 'Pro',
     description: 'For active creators managing multiple projects',
     dealCredits: 50,
-    storageBytes: 20 * 1024 * 1024 * 1024, // 20 GB
+    storageBytes: 50 * 1024 * 1024 * 1024, // 50 GB
     features: [
       '50 Deal credits',
-      '20 GB storage',
+      '50 GB storage',
       'Everything in Starter',
       'Deal templates',
       'Milestone tracking',

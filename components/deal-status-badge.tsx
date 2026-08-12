@@ -12,6 +12,7 @@ const statusConfig: Record<DealStatus, { label: string; className: string; dot: 
   paid: { label: 'Paid', className: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300', dot: 'bg-emerald-500' },
   delivered: { label: 'Delivered', className: 'bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300', dot: 'bg-purple-500' },
   completed: { label: 'Completed', className: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300', dot: 'bg-emerald-500' },
+  closed: { label: 'Closed', className: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300', dot: 'bg-zinc-500' },
   cancelled: { label: 'Cancelled', className: 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300', dot: 'bg-red-500' },
 };
 

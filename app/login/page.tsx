@@ -2,35 +2,75 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { Mail, Lock, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Mail, Lock, ArrowRight, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { createClient } from '@/lib/supabase/client';
+import { hasSupabasePublicConfig } from '@/lib/env';
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirect = searchParams.get('redirect') || '/dashboard';
+  const supabase = createClient();
+  const isConfigured = hasSupabasePublicConfig();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+
     if (!email || !password) {
       setError('Please enter your email and password.');
       return;
     }
+
     setLoading(true);
-    // Architecture prepared for Supabase Auth integration.
-    // This will call supabase.auth.signInWithPassword({ email, password }).
-    setTimeout(() => {
+
+    if (!isConfigured) {
+      // Offline fallback: navigate directly to dashboard
+      setTimeout(() => {
+        setLoading(false);
+        router.push(redirect);
+      }, 500);
+      return;
+    }
+
+    try {
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+
+      if (authError) {
+        if (authError.message.includes('Email not confirmed')) {
+          setError('Your email address is not verified yet. Please check your inbox for the confirmation link.');
+        } else if (authError.message.includes('Invalid login credentials')) {
+          setError('Invalid email or password. Please try again.');
+        } else {
+          setError(authError.message);
+        }
+        setLoading(false);
+        return;
+      }
+
+      if (data.session) {
+        router.push(redirect);
+        router.refresh();
+      }
+    } catch (err: any) {
+      setError(err?.message || 'An unexpected error occurred during sign in.');
+    } finally {
       setLoading(false);
-      router.push('/dashboard');
-    }, 600);
+    }
   }
 
   return (
@@ -43,6 +83,7 @@ export default function LoginPage() {
           <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
             <h1 className="text-xl font-display font-semibold tracking-tight mb-1">Welcome back</h1>
             <p className="text-sm text-muted-foreground mb-6">Log in to your DELT workspace.</p>
+
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
@@ -55,13 +96,14 @@ export default function LoginPage() {
                     className="pl-9"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
+                    required
                   />
                 </div>
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="password">Password</Label>
-                  <Link href="#" className="text-xs text-muted-foreground hover:text-foreground">
+                  <Link href="/auth/forgot-password" className="text-xs text-muted-foreground hover:text-foreground">
                     Forgot password?
                   </Link>
                 </div>
@@ -74,6 +116,7 @@ export default function LoginPage() {
                     className="pl-9 pr-9"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    required
                   />
                   <button
                     type="button"
@@ -84,23 +127,26 @@ export default function LoginPage() {
                   </button>
                 </div>
               </div>
+
               {error && (
-                <p className="text-sm text-destructive">{error}</p>
+                <div className="flex items-start gap-2 rounded-lg bg-destructive/10 p-3 text-xs text-destructive">
+                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>{error}</span>
+                </div>
               )}
+
               <Button type="submit" className="w-full gap-2" disabled={loading}>
                 {loading ? 'Signing in...' : 'Sign in'}
                 {!loading && <ArrowRight className="h-4 w-4" />}
               </Button>
             </form>
           </div>
+
           <p className="mt-6 text-center text-sm text-muted-foreground">
             Do not have an account?{' '}
             <Link href="/signup" className="font-medium text-foreground hover:underline">
               Sign up
             </Link>
-          </p>
-          <p className="mt-4 text-center text-xs text-muted-foreground/60">
-            Demo mode — sign in will enter the workspace with demo data.
           </p>
         </div>
       </div>

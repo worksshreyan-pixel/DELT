@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useRef, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   User,
@@ -16,6 +16,16 @@ import {
   CheckCircle2,
   Link as LinkIcon,
   Copy,
+  Sparkles,
+  Lock,
+  ExternalLink,
+  AlertCircle,
+  Upload,
+  Share2,
+  Mail,
+  RefreshCw,
+  FileText,
+  Paperclip,
 } from 'lucide-react';
 import { Breadcrumb } from '@/components/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
@@ -24,19 +34,22 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { formatCurrency } from '@/lib/plans';
+import { formatCurrency, formatBytes } from '@/lib/plans';
+import { STANDARD_TEMPLATES, createDealInStore, useAppStore, type Deal } from '@/lib/app-store';
+import { getDealPublicUrl } from '@/lib/deal-url';
 
 const steps = [
   { id: 'client', label: 'Client', icon: User },
   { id: 'project', label: 'Project', icon: FolderKanban },
   { id: 'pricing', label: 'Pricing', icon: IndianRupee },
-  { id: 'deliverables', label: 'Deliverables', icon: FileCheck },
+  { id: 'files', label: 'Deliverables & Files', icon: FileCheck },
   { id: 'review', label: 'Review', icon: Check },
 ];
 
 interface DealFormData {
   clientName: string;
   clientEmail: string;
+  clientCompany: string;
   title: string;
   description: string;
   scope: string[];
@@ -47,13 +60,33 @@ interface DealFormData {
 }
 
 export default function CreateDealPage() {
+  return (
+    <Suspense fallback={<div className="py-12 text-center text-sm text-muted-foreground">Loading deal creator...</div>}>
+      <CreateDealForm />
+    </Suspense>
+  );
+}
+
+function CreateDealForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const templateIdParam = searchParams.get('template');
+  const store = useAppStore();
+
   const [step, setStep] = useState(0);
-  const [created, setCreated] = useState(false);
-  const [dealToken, setDealToken] = useState('');
+  const [createdDeal, setCreatedDeal] = useState<Deal | null>(null);
+  const [emailStatus, setEmailStatus] = useState<{ delivered?: boolean; simulated?: boolean; error?: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [resendingEmail, setResendingEmail] = useState(false);
+  const [resendResult, setResendResult] = useState<string | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(templateIdParam || '');
+  const [validationError, setValidationError] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+
   const [data, setData] = useState<DealFormData>({
     clientName: '',
     clientEmail: '',
+    clientCompany: '',
     title: '',
     description: '',
     scope: [],
@@ -62,11 +95,59 @@ export default function CreateDealPage() {
     currency: 'INR',
     deliverables: [],
   });
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [scopeInput, setScopeInput] = useState('');
   const [deliverableInput, setDeliverableInput] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Prefill from template query param if provided
+  useEffect(() => {
+    if (templateIdParam) {
+      const tpl = STANDARD_TEMPLATES.find((t) => t.id === templateIdParam);
+      if (tpl) {
+        setData((prev) => ({
+          ...prev,
+          title: tpl.name,
+          description: tpl.description,
+          scope: [...tpl.scope],
+          price: tpl.defaultPrice.toString(),
+          currency: tpl.currency,
+          deliverables: [...tpl.deliverables],
+        }));
+        setSelectedTemplateId(tpl.id);
+      }
+    }
+  }, [templateIdParam]);
+
+  function applyTemplate(tplId: string) {
+    const tpl = STANDARD_TEMPLATES.find((t) => t.id === tplId);
+    if (!tpl) return;
+    setData((prev) => ({
+      ...prev,
+      title: tpl.name,
+      description: tpl.description,
+      scope: [...tpl.scope],
+      price: tpl.defaultPrice.toString(),
+      currency: tpl.currency,
+      deliverables: [...tpl.deliverables],
+    }));
+    setSelectedTemplateId(tpl.id);
+  }
+
+  function applyClient(clientId: string) {
+    const cl = store.clients.find((c) => c.id === clientId);
+    if (!cl) return;
+    setData((prev) => ({
+      ...prev,
+      clientName: cl.name,
+      clientEmail: cl.email,
+      clientCompany: cl.company || '',
+    }));
+  }
 
   function update(field: keyof DealFormData, value: string | string[]) {
     setData((prev) => ({ ...prev, [field]: value }));
+    setValidationError('');
   }
 
   function addScope() {
@@ -88,49 +169,297 @@ export default function CreateDealPage() {
     update('deliverables', data.deliverables.filter((_, i) => i !== idx));
   }
 
-  function canProceed() {
-    switch (step) {
-      case 0: return data.clientName && data.clientEmail;
-      case 1: return data.title && data.description;
-      case 2: return data.price;
-      default: return true;
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files) {
+      const files = Array.from(e.target.files);
+      setSelectedFiles((prev) => [...prev, ...files]);
     }
   }
 
-  function handleCreate() {
-    const token = `dl_${Math.random().toString(36).slice(2, 14)}`;
-    setDealToken(token);
-    setCreated(true);
+  function removeFile(idx: number) {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== idx));
   }
 
-  if (created) {
+  function isValidEmail(email: string) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  }
+
+  function canProceed() {
+    switch (step) {
+      case 0:
+        return data.clientName.trim().length > 0 && isValidEmail(data.clientEmail.trim());
+      case 1:
+        return data.title.trim().length > 0;
+      case 2:
+        return Number(data.price) > 0;
+      default:
+        return true;
+    }
+  }
+
+  async function handleCreate() {
+    if (!data.clientName.trim() || !isValidEmail(data.clientEmail.trim())) {
+      setValidationError('Please enter a valid client name and email address.');
+      setStep(0);
+      return;
+    }
+    if (!data.title.trim()) {
+      setValidationError('Please enter a project title.');
+      setStep(1);
+      return;
+    }
+    const priceNum = Number(data.price);
+    if (!priceNum || priceNum <= 0) {
+      setValidationError('Please enter a valid positive deal price.');
+      setStep(2);
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // 1. Submit via FormData to support file uploads during creation
+      const formData = new FormData();
+      formData.append('clientName', data.clientName.trim());
+      formData.append('clientEmail', data.clientEmail.trim());
+      if (data.clientCompany.trim()) formData.append('clientCompany', data.clientCompany.trim());
+      formData.append('title', data.title.trim());
+      if (data.description.trim()) formData.append('description', data.description.trim());
+      formData.append('price', String(priceNum));
+      formData.append('currency', data.currency);
+      if (data.deadline) formData.append('deadline', data.deadline);
+      formData.append('scope', JSON.stringify(data.scope));
+      formData.append('deliverables', JSON.stringify(data.deliverables));
+
+      for (const file of selectedFiles) {
+        formData.append('files', file);
+      }
+
+      const res = await fetch('/api/deals/create', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        if (json.deal) {
+          // Sync local reactive store
+          createDealInStore({
+            clientName: data.clientName.trim(),
+            clientEmail: data.clientEmail.trim(),
+            clientCompany: data.clientCompany.trim() || undefined,
+            title: data.title.trim(),
+            description: data.description.trim(),
+            scope: data.scope,
+            price: priceNum,
+            currency: data.currency,
+            deadline: data.deadline,
+            deliverables: data.deliverables,
+          });
+
+          setCreatedDeal(json.deal);
+          setEmailStatus(json.emailResult || null);
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Fallback to local store
+      const localDeal = createDealInStore({
+        clientName: data.clientName.trim(),
+        clientEmail: data.clientEmail.trim(),
+        clientCompany: data.clientCompany.trim() || undefined,
+        title: data.title.trim(),
+        description: data.description.trim(),
+        scope: data.scope,
+        price: priceNum,
+        currency: data.currency,
+        deadline: data.deadline,
+        deliverables: data.deliverables,
+      });
+      setCreatedDeal(localDeal);
+    } catch (err: any) {
+      console.error('Error creating deal:', err);
+      const localDeal = createDealInStore({
+        clientName: data.clientName.trim(),
+        clientEmail: data.clientEmail.trim(),
+        title: data.title.trim(),
+        description: data.description.trim(),
+        scope: data.scope,
+        price: priceNum,
+        currency: data.currency,
+        deadline: data.deadline,
+        deliverables: data.deliverables,
+      });
+      setCreatedDeal(localDeal);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleShare(url: string, title: string) {
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({
+          title: `DELT Deal: ${title}`,
+          text: `Here is your private Deal workspace on DELT: ${title}`,
+          url: url,
+        });
+        return;
+      } catch (err) {
+        // Fallback to clipboard
+      }
+    }
+    navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function handleResendEmail(token: string) {
+    setResendingEmail(true);
+    setResendResult(null);
+    try {
+      const res = await fetch(`/api/deals/${encodeURIComponent(token)}/resend-invite`, {
+        method: 'POST',
+      });
+      const json = await res.json();
+      if (res.ok && json.emailResult?.delivered) {
+        setResendResult('Invitation email resent successfully!');
+      } else if (json.emailResult?.simulated) {
+        setResendResult('Email simulated (Resend API key not configured in .env.local).');
+      } else {
+        setResendResult(json.emailResult?.error || 'Email delivery requires RESEND_API_KEY configuration.');
+      }
+    } catch (err) {
+      setResendResult('Failed to resend invitation email.');
+    } finally {
+      setResendingEmail(false);
+    }
+  }
+
+  if (createdDeal) {
+    const canonicalUrl = getDealPublicUrl(createdDeal.token);
+
     return (
-      <div className="mx-auto max-w-lg">
+      <div className="mx-auto max-w-lg py-6">
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
-          <Card>
-            <CardContent className="p-8 text-center">
-              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 dark:bg-emerald-950">
-                <CheckCircle2 className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
+          <Card className="border-border">
+            <CardContent className="p-6 sm:p-8 space-y-6">
+              {/* Header Badge */}
+              <div className="text-center space-y-2">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 dark:bg-emerald-950">
+                  <CheckCircle2 className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <h2 className="text-xl font-display font-semibold tracking-tight">Deal created successfully</h2>
+                <p className="text-sm font-medium text-foreground">
+                  {createdDeal.title} · {formatCurrency(createdDeal.price, createdDeal.currency)}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Client: <strong className="text-foreground">{data.clientName}</strong> ({data.clientEmail})
+                </p>
               </div>
-              <h2 className="text-xl font-display font-semibold tracking-tight mb-1">Deal created</h2>
-              <p className="text-sm text-muted-foreground mb-6">
-                Your deal is ready. Share the private link with your client to get started.
-              </p>
-              <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 p-3 mb-6">
-                <LinkIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span className="flex-1 truncate text-sm font-mono">delt.app/deal/{dealToken}</span>
-                <Button variant="ghost" size="sm" className="gap-1.5">
-                  <Copy className="h-3.5 w-3.5" />
-                  Copy
+
+              {/* Email Status Indicator */}
+              <div className="rounded-lg border border-border bg-muted/30 p-3 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span>
+                    Client invitation:{' '}
+                    {emailStatus?.delivered ? (
+                      <strong className="text-emerald-600 dark:text-emerald-400 font-medium">Sent to {data.clientEmail}</strong>
+                    ) : emailStatus?.simulated ? (
+                      <strong className="text-muted-foreground font-medium">Simulated (Dev mode)</strong>
+                    ) : (
+                      <strong className="text-amber-600 dark:text-amber-400 font-medium">Ready to send</strong>
+                    )}
+                  </span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleResendEmail(createdDeal.token)}
+                  disabled={resendingEmail}
+                  className="h-7 px-2 text-xs gap-1"
+                >
+                  <RefreshCw className={cn("h-3 w-3", resendingEmail && "animate-spin")} />
+                  {resendingEmail ? 'Sending...' : 'Resend Email'}
                 </Button>
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Button className="flex-1" onClick={() => router.push('/deals')}>
-                  Go to Deals
-                </Button>
-                <Button variant="outline" className="flex-1" onClick={() => router.push(`/deal/${dealToken}`)}>
-                  Preview client view
-                </Button>
+
+              {resendResult && (
+                <p className="text-[11px] text-muted-foreground text-center">{resendResult}</p>
+              )}
+
+              {/* Private Link Box */}
+              <div className="space-y-2 text-left">
+                <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Lock className="h-3.5 w-3.5" />
+                  Your private Deal link
+                </Label>
+                <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 p-2.5">
+                  <LinkIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="flex-1 truncate text-xs font-mono select-all">{canonicalUrl}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 shrink-0"
+                    onClick={() => {
+                      navigator.clipboard.writeText(canonicalUrl);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }}
+                  >
+                    {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                    {copied ? 'Copied!' : 'Copy'}
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground/80 leading-relaxed">
+                  Only authorized people with this private link and email verification can open this workspace.
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="space-y-2 pt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <Button
+                    variant="outline"
+                    className="gap-1.5 text-xs"
+                    onClick={() => {
+                      navigator.clipboard.writeText(canonicalUrl);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    {copied ? 'Link Copied!' : 'Copy Link'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="gap-1.5 text-xs"
+                    onClick={() => handleShare(canonicalUrl, createdDeal.title)}
+                  >
+                    <Share2 className="h-3.5 w-3.5" />
+                    Share
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="gap-1.5 text-xs"
+                    onClick={() => window.open(canonicalUrl, '_blank')}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Open Client View
+                  </Button>
+                </div>
+
+                <div className="pt-2">
+                  <Button
+                    className="w-full gap-2"
+                    onClick={() => router.push(`/deals/${createdDeal.id}`)}
+                  >
+                    Open Deal Workspace
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -140,11 +469,11 @@ export default function CreateDealPage() {
   }
 
   return (
-    <div>
+    <div className="space-y-6 max-w-3xl mx-auto">
       <Breadcrumb items={[{ label: 'Deals', href: '/deals' }, { label: 'New Deal' }]} />
 
       {/* Step indicator */}
-      <div className="mb-8">
+      <div className="pb-2">
         <div className="flex items-center justify-between">
           {steps.map((s, i) => (
             <div key={s.id} className="flex flex-1 items-center">
@@ -174,7 +503,14 @@ export default function CreateDealPage() {
       </div>
 
       <Card>
-        <CardContent className="p-6">
+        <CardContent className="p-6 sm:p-8">
+          {validationError && (
+            <div className="mb-4 flex items-center gap-2 rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-xs text-destructive">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{validationError}</span>
+            </div>
+          )}
+
           <AnimatePresence mode="wait">
             <motion.div
               key={step}
@@ -185,67 +521,125 @@ export default function CreateDealPage() {
             >
               {/* Step 1: Client */}
               {step === 0 && (
-                <div className="space-y-4 max-w-md">
+                <div className="space-y-5 max-w-md">
                   <div>
                     <h2 className="text-lg font-semibold mb-1">Client details</h2>
                     <p className="text-sm text-muted-foreground">Who is this deal for?</p>
                   </div>
+
+                  {store.clients.length > 0 && (
+                    <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+                      <Label className="text-xs text-muted-foreground">Select an existing client (optional)</Label>
+                      <select
+                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-xs"
+                        onChange={(e) => {
+                          if (e.target.value) applyClient(e.target.value);
+                        }}
+                        defaultValue=""
+                      >
+                        <option value="">-- Choose from your clients --</option>
+                        {store.clients.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name} ({c.company || c.email})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
                   <div className="space-y-2">
-                    <Label htmlFor="clientName">Client name</Label>
+                    <Label htmlFor="clientName">Client name *</Label>
                     <Input
                       id="clientName"
-                      placeholder="Sarah Mitchell"
+                      placeholder="e.g. Rahul Sharma"
                       value={data.clientName}
                       onChange={(e) => update('clientName', e.target.value)}
+                      required
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="clientEmail">Client email</Label>
+                    <Label htmlFor="clientEmail">Client email *</Label>
                     <Input
                       id="clientEmail"
                       type="email"
-                      placeholder="sarah@brightsmiledental.com"
+                      placeholder="e.g. rahul@example.com"
                       value={data.clientEmail}
                       onChange={(e) => update('clientEmail', e.target.value)}
+                      required
                     />
                     <p className="text-xs text-muted-foreground">
-                      The client will verify this email via OTP to access the deal.
+                      An invitation with the private Deal link will be sent to this email address.
                     </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="clientCompany">Company name (optional)</Label>
+                    <Input
+                      id="clientCompany"
+                      placeholder="e.g. TechCorp"
+                      value={data.clientCompany}
+                      onChange={(e) => update('clientCompany', e.target.value)}
+                    />
                   </div>
                 </div>
               )}
 
               {/* Step 2: Project */}
               {step === 1 && (
-                <div className="space-y-4 max-w-lg">
+                <div className="space-y-5 max-w-lg">
                   <div>
                     <h2 className="text-lg font-semibold mb-1">Project details</h2>
-                    <p className="text-sm text-muted-foreground">Describe the work and scope.</p>
+                    <p className="text-sm text-muted-foreground">Describe the project and scope of work.</p>
                   </div>
+
+                  <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+                    <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                      <Sparkles className="h-3.5 w-3.5 text-primary" />
+                      Optional: Load from template
+                    </Label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {STANDARD_TEMPLATES.map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => applyTemplate(t.id)}
+                          className={cn(
+                            'rounded-md px-2.5 py-1 text-xs font-medium border transition-colors',
+                            selectedTemplateId === t.id
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-background text-muted-foreground border-border hover:border-foreground/30 hover:text-foreground'
+                          )}
+                        >
+                          {t.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
-                    <Label htmlFor="title">Project title</Label>
+                    <Label htmlFor="title">Project title *</Label>
                     <Input
                       id="title"
-                      placeholder="Clinic Website Redesign"
+                      placeholder="e.g. Final YouTube Video"
                       value={data.title}
                       onChange={(e) => update('title', e.target.value)}
+                      required
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="description">Description</Label>
+                    <Label htmlFor="description">Description (optional)</Label>
                     <Textarea
                       id="description"
-                      placeholder="Complete redesign of the website with modern, calming aesthetic..."
-                      rows={4}
+                      placeholder="Brief overview of project goals..."
+                      rows={3}
                       value={data.description}
                       onChange={(e) => update('description', e.target.value)}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Scope items</Label>
+                    <Label>Scope items (optional)</Label>
                     <div className="flex gap-2">
                       <Input
-                        placeholder="Add a scope item..."
+                        placeholder="Add a scope milestone or task..."
                         value={scopeInput}
                         onChange={(e) => setScopeInput(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addScope(); } }}
@@ -268,7 +662,7 @@ export default function CreateDealPage() {
                     )}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="deadline">Deadline</Label>
+                    <Label htmlFor="deadline">Target deadline (optional)</Label>
                     <Input
                       id="deadline"
                       type="date"
@@ -281,20 +675,21 @@ export default function CreateDealPage() {
 
               {/* Step 3: Pricing */}
               {step === 2 && (
-                <div className="space-y-4 max-w-md">
+                <div className="space-y-5 max-w-md">
                   <div>
                     <h2 className="text-lg font-semibold mb-1">Pricing</h2>
-                    <p className="text-sm text-muted-foreground">Set the deal amount and currency.</p>
+                    <p className="text-sm text-muted-foreground">Set the project price and currency.</p>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
                     <div className="space-y-2 col-span-2">
-                      <Label htmlFor="price">Price</Label>
+                      <Label htmlFor="price">Price *</Label>
                       <Input
                         id="price"
                         type="number"
-                        placeholder="62000"
+                        placeholder="2500"
                         value={data.price}
                         onChange={(e) => update('price', e.target.value)}
+                        required
                       />
                     </div>
                     <div className="space-y-2">
@@ -305,34 +700,88 @@ export default function CreateDealPage() {
                         value={data.currency}
                         onChange={(e) => update('currency', e.target.value)}
                       >
-                        <option value="INR">INR</option>
-                        <option value="USD">USD</option>
-                        <option value="EUR">EUR</option>
-                        <option value="GBP">GBP</option>
+                        <option value="INR">INR (₹)</option>
+                        <option value="USD">USD ($)</option>
+                        <option value="EUR">EUR (€)</option>
+                        <option value="GBP">GBP (£)</option>
                       </select>
                     </div>
                   </div>
-                  {data.price && (
-                    <div className="rounded-lg bg-muted/30 p-3">
-                      <p className="text-xs text-muted-foreground">Deal amount</p>
-                      <p className="text-lg font-semibold">{formatCurrency(Number(data.price), data.currency as 'INR' | 'USD' | 'EUR' | 'GBP')}</p>
+                  {Number(data.price) > 0 && (
+                    <div className="rounded-lg bg-muted/40 p-4 border border-border">
+                      <p className="text-xs text-muted-foreground">Total Project Amount</p>
+                      <p className="text-2xl font-display font-semibold mt-1">
+                        {formatCurrency(Number(data.price), data.currency as 'INR' | 'USD' | 'EUR' | 'GBP')}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Client can review, accept, or propose price adjustments inside the Deal chat.
+                      </p>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Step 4: Deliverables */}
-              {step === 4 - 1 && (
-                <div className="space-y-4 max-w-lg">
+              {/* Step 4: Deliverables & File Upload */}
+              {step === 3 && (
+                <div className="space-y-6 max-w-lg">
                   <div>
-                    <h2 className="text-lg font-semibold mb-1">Deliverables</h2>
-                    <p className="text-sm text-muted-foreground">What will you deliver to the client?</p>
+                    <h2 className="text-lg font-semibold mb-1">Deliverables & Files (optional)</h2>
+                    <p className="text-sm text-muted-foreground">Upload deliverable files or list project milestones.</p>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Deliverable items</Label>
+
+                  {/* File Upload Box */}
+                  <div className="space-y-3">
+                    <Label className="text-xs font-medium">Attach Deliverable Files</Label>
+                    <div
+                      onClick={() => fileInputRef.current?.click()}
+                      className="border-2 border-dashed border-border rounded-xl p-6 text-center cursor-pointer hover:border-primary/50 hover:bg-muted/30 transition-colors"
+                    >
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={handleFileSelect}
+                      />
+                      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary mb-2">
+                        <Upload className="h-5 w-5" />
+                      </div>
+                      <p className="text-sm font-medium">Click to browse or drag and drop files</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        ZIP, PDF, MP4, PNG, JPG, PSD, Figma archives (up to 100MB)
+                      </p>
+                    </div>
+
+                    {/* Selected files list */}
+                    {selectedFiles.length > 0 && (
+                      <div className="space-y-2 pt-1">
+                        <p className="text-xs font-medium text-muted-foreground">{selectedFiles.length} file(s) selected:</p>
+                        {selectedFiles.map((file, idx) => (
+                          <div key={idx} className="flex items-center justify-between rounded-lg bg-muted/50 p-2.5 text-xs border border-border">
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <FileText className="h-4 w-4 text-primary shrink-0" />
+                              <span className="truncate font-medium">{file.name}</span>
+                              <span className="text-muted-foreground shrink-0">({formatBytes(file.size)})</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeFile(idx)}
+                              className="p-1 text-muted-foreground hover:text-destructive rounded transition-colors"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Deliverable Milestones */}
+                  <div className="space-y-2 pt-2 border-t border-border">
+                    <Label className="text-xs font-medium">Deliverable Item Names (optional)</Label>
                     <div className="flex gap-2">
                       <Input
-                        placeholder="Add a deliverable..."
+                        placeholder="e.g. Master Video Export (4K)..."
                         value={deliverableInput}
                         onChange={(e) => setDeliverableInput(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addDeliverable(); } }}
@@ -353,28 +802,34 @@ export default function CreateDealPage() {
                         ))}
                       </div>
                     )}
-                    {data.deliverables.length === 0 && (
-                      <p className="text-xs text-muted-foreground">You can add deliverables later if needed.</p>
-                    )}
                   </div>
                 </div>
               )}
 
               {/* Step 5: Review */}
               {step === 4 && (
-                <div className="space-y-4 max-w-lg">
+                <div className="space-y-5 max-w-lg">
                   <div>
-                    <h2 className="text-lg font-semibold mb-1">Review and create</h2>
-                    <p className="text-sm text-muted-foreground">Check the details before creating the deal.</p>
+                    <h2 className="text-lg font-semibold mb-1">Review & Create</h2>
+                    <p className="text-sm text-muted-foreground">Confirm details before generating your private deal link.</p>
                   </div>
-                  <div className="space-y-3">
+                  <div className="space-y-3 rounded-lg border border-border p-4 bg-muted/20">
                     <ReviewRow label="Client" value={`${data.clientName} (${data.clientEmail})`} />
                     <ReviewRow label="Project" value={data.title} />
-                    <ReviewRow label="Description" value={data.description} />
-                    <ReviewRow label="Scope" value={data.scope.join(', ') || '—'} />
-                    <ReviewRow label="Deadline" value={data.deadline ? new Date(data.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'} />
-                    <ReviewRow label="Price" value={data.price ? formatCurrency(Number(data.price), data.currency as 'INR' | 'USD' | 'EUR' | 'GBP') : '—'} />
-                    <ReviewRow label="Deliverables" value={data.deliverables.join(', ') || '—'} />
+                    <ReviewRow label="Description" value={data.description || '—'} />
+                    <ReviewRow label="Scope" value={data.scope.length > 0 ? data.scope.join(', ') : 'Standard Project Scope'} />
+                    <ReviewRow
+                      label="Deadline"
+                      value={data.deadline ? new Date(data.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Flexible'}
+                    />
+                    <ReviewRow
+                      label="Price"
+                      value={data.price ? formatCurrency(Number(data.price), data.currency as 'INR' | 'USD' | 'EUR' | 'GBP') : '—'}
+                    />
+                    <ReviewRow
+                      label="Deliverable Files"
+                      value={selectedFiles.length > 0 ? `${selectedFiles.length} file(s) attached` : 'Upload anytime in workspace'}
+                    />
                   </div>
                 </div>
               )}
@@ -382,11 +837,12 @@ export default function CreateDealPage() {
           </AnimatePresence>
 
           {/* Navigation */}
-          <div className="mt-8 flex items-center justify-between">
+          <div className="mt-8 pt-4 border-t border-border flex items-center justify-between">
             <Button
               variant="ghost"
-              onClick={() => step > 0 ? setStep(step - 1) : router.push('/deals')}
+              onClick={() => (step > 0 ? setStep(step - 1) : router.push('/deals'))}
               className="gap-1.5"
+              disabled={loading}
             >
               <ArrowLeft className="h-4 w-4" />
               {step === 0 ? 'Cancel' : 'Back'}
@@ -397,9 +853,9 @@ export default function CreateDealPage() {
                 <ArrowRight className="h-4 w-4" />
               </Button>
             ) : (
-              <Button onClick={handleCreate} className="gap-1.5">
+              <Button onClick={handleCreate} disabled={loading} className="gap-1.5">
                 <Check className="h-4 w-4" />
-                Create Deal
+                {loading ? 'Creating Deal & Uploading...' : 'Create Deal'}
               </Button>
             )}
           </div>
@@ -411,7 +867,7 @@ export default function CreateDealPage() {
 
 function ReviewRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex flex-col gap-0.5 border-b border-border pb-3">
+    <div className="flex flex-col gap-0.5 border-b border-border/50 pb-2.5 last:border-0 last:pb-0">
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className="text-sm font-medium">{value || '—'}</span>
     </div>

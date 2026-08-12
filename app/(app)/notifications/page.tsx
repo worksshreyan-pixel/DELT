@@ -18,8 +18,8 @@ import { PageHeader } from '@/components/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/empty-state';
-import { DEMO_NOTIFICATIONS } from '@/lib/demo-data';
-import type { AppNotification, NotificationType } from '@/lib/types';
+import { useAppStore } from '@/lib/app-store';
+import type { NotificationType } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 const typeConfig: Record<NotificationType, { icon: React.ElementType; color: string }> = {
@@ -47,70 +47,61 @@ function formatRelativeTime(iso: string): string {
 }
 
 export default function NotificationsPage() {
-  const [notifications, setNotifications] = useState<AppNotification[]>(DEMO_NOTIFICATIONS);
+  const store = useAppStore();
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
+  const notifications = store.notifications;
 
   const filtered = filter === 'unread' ? notifications.filter((n) => !n.read) : notifications;
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  function markAsRead(id: string) {
-    setNotifications(notifications.map((n) => (n.id === id ? { ...n, read: true } : n)));
-  }
-
-  function markAllAsRead() {
-    setNotifications(notifications.map((n) => ({ ...n, read: true })));
-  }
-
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
         title="Notifications"
-        description={unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}
+        description="Stay updated on messages, proposals, payments and deliveries."
         action={
-          <Button variant="outline" className="gap-2" onClick={markAllAsRead} disabled={unreadCount === 0}>
-            <Check className="h-4 w-4" />
-            Mark all as read
-          </Button>
+          unreadCount > 0 ? (
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <Check className="h-3.5 w-3.5" />
+              Mark all as read
+            </Button>
+          ) : undefined
         }
       />
 
-      {/* Filter */}
-      <div className="mb-4 flex items-center gap-1.5">
-        <button
-          onClick={() => setFilter('all')}
-          className={cn(
-            'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-            filter === 'all' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent'
-          )}
-        >
-          All
-        </button>
-        <button
-          onClick={() => setFilter('unread')}
-          className={cn(
-            'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-            filter === 'unread' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent'
-          )}
-        >
-          Unread {unreadCount > 0 && `(${unreadCount})`}
-        </button>
-      </div>
+      {notifications.length > 0 && (
+        <div className="flex gap-2">
+          <Button
+            variant={filter === 'all' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFilter('all')}
+          >
+            All ({notifications.length})
+          </Button>
+          <Button
+            variant={filter === 'unread' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFilter('unread')}
+          >
+            Unread ({unreadCount})
+          </Button>
+        </div>
+      )}
 
-      {/* List */}
       {filtered.length === 0 ? (
         <Card>
-          <CardContent>
+          <CardContent className="py-12">
             <EmptyState
               icon={Bell}
-              title={filter === 'unread' ? 'No unread notifications' : 'No notifications'}
-              description={filter === 'unread' ? 'You are all caught up.' : 'Notifications will appear here.'}
+              title="You're all caught up"
+              description="Notifications about messages, price proposals, payments and file updates will appear here."
             />
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-2">
           {filtered.map((n, i) => {
-            const config = typeConfig[n.type];
+            const cfg = typeConfig[n.type];
             return (
               <motion.div
                 key={n.id}
@@ -118,36 +109,27 @@ export default function NotificationsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2, delay: i * 0.03 }}
               >
-                <Card className={cn('transition-colors', !n.read && 'border-primary/20 bg-primary/[0.02]')}>
-                  <CardContent className="flex items-start gap-3 p-4">
-                    <div className={cn('flex h-9 w-9 items-center justify-center rounded-lg shrink-0', config.color)}>
-                      <config.icon className="h-4 w-4" />
+                <Card className={cn('transition-colors', !n.read && 'border-primary/20 bg-primary/[0.01]')}>
+                  <CardContent className="flex items-start gap-4 p-4">
+                    <div className={cn('flex h-9 w-9 items-center justify-center rounded-lg shrink-0', cfg.color)}>
+                      <cfg.icon className="h-4 w-4" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-medium">{n.title}</p>
-                        {!n.read && <span className="h-2 w-2 rounded-full bg-primary shrink-0" />}
+                        {!n.read && (
+                          <span className="h-2 w-2 rounded-full bg-primary shrink-0" />
+                        )}
                       </div>
                       <p className="text-sm text-muted-foreground mt-0.5">{n.description}</p>
-                      {n.dealTitle && (
-                        <Link
-                          href={n.dealId ? `/deals/${n.dealId}` : '/deals'}
-                          className="text-xs text-primary hover:underline mt-1 inline-block"
-                        >
-                          {n.dealTitle}
-                        </Link>
-                      )}
                       <p className="text-xs text-muted-foreground/60 mt-1">{formatRelativeTime(n.createdAt)}</p>
                     </div>
-                    {!n.read && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="shrink-0 text-muted-foreground"
-                        onClick={() => markAsRead(n.id)}
-                      >
-                        Mark read
-                      </Button>
+                    {n.dealId && (
+                      <Link href={`/deals/${n.dealId}`}>
+                        <Button variant="ghost" size="sm" className="text-xs">
+                          View Deal
+                        </Button>
+                      </Link>
                     )}
                   </CardContent>
                 </Card>
