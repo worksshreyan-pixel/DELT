@@ -1064,7 +1064,7 @@ function ClientPortal({
   async function handleDownloadFile(filePath: string) {
     setDownloading(true);
     try {
-      const savedToken = localStorage.getItem(`delt_session_${currentDeal.token}`);
+      const savedToken = localStorage.getItem(`delt_client_session_${currentDeal.token}`);
       const res = await fetch('/api/files/signed-url', {
         method: 'POST',
         headers: {
@@ -1109,7 +1109,7 @@ function ClientPortal({
 
     setDownloading(true);
     try {
-      const savedToken = localStorage.getItem(`delt_session_${currentDeal.token}`);
+      const savedToken = localStorage.getItem(`delt_client_session_${currentDeal.token}`);
       for (const f of allFiles) {
         const res = await fetch('/api/files/signed-url', {
           method: 'POST',
@@ -1149,7 +1149,7 @@ function ClientPortal({
     if (previewLoadingFileId) return;
     setPreviewLoadingFileId(fileId);
     try {
-      const savedToken = localStorage.getItem(`delt_session_${currentDeal.token}`);
+      const savedToken = localStorage.getItem(`delt_client_session_${currentDeal.token}`);
       const res = await fetch('/api/files/preview', {
         method: 'POST',
         headers: {

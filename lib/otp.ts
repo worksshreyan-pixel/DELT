@@ -542,7 +542,7 @@ export async function verifyDealOtp(
   // 1. Fetch deal by token
   const { data: deal, error: dealError } = await admin
     .from('deals')
-    .select('id, token, client_email, client_name, title, description')
+    .select('*')
     .eq('token', dealToken)
     .maybeSingle();
 
@@ -559,9 +559,24 @@ export async function verifyDealOtp(
 
   const parsed = parseDescription(deal.description);
   const resolvedDeal = {
-    ...deal,
-    preview_enabled: parsed.previewEnabled,
+    id: deal.id,
+    token: deal.token,
+    creatorId: deal.creator_id,
+    clientId: deal.client_id,
+    clientName: deal.client_name,
+    clientEmail: deal.client_email,
+    title: deal.title,
     description: parsed.description,
+    scope: Array.isArray(deal.scope) ? deal.scope : [],
+    price: Number(deal.price),
+    currency: deal.currency || 'INR',
+    status: deal.status || 'in_progress',
+    deadline: deal.deadline,
+    progress: Number(deal.progress || 0),
+    paymentStatus: deal.payment_status || 'pending',
+    lastActivityAt: deal.last_activity_at || deal.created_at,
+    createdAt: deal.created_at,
+    previewEnabled: parsed.previewEnabled,
   };
 
   console.log(`[CLIENT_DEAL_RESOLUTION]`, JSON.stringify({
