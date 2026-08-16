@@ -85,6 +85,7 @@ export interface Deal {
   lastActivityAt: ISODate;
   createdAt: ISODate;
   updatedAt: ISODate;
+  previewEnabled: boolean;
 }
 
 export type DealParticipantRole = 'creator' | 'client';
@@ -189,11 +190,21 @@ export interface Deliverable {
 export type FileVersionStatus = 'pending_review' | 'approved' | 'changes_requested';
 
 export interface FileVersionItem {
-  id: UUID;
+  id: string;
   name: string;
   size: number;
   type: string;
+  path: string;
   url?: string;
+  previewPath?: string;
+  previewType?: string;
+  previewStatus?: 'ready' | 'failed' | 'processing';
+  previewGeneratedAt?: string;
+  previewStart?: number;
+  previewDuration?: number;
+  deletedAt?: string;
+  deletionStatus?: 'active' | 'retention' | 'eligible' | 'deleted';
+  retentionUntil?: string;
 }
 
 export interface FileVersion {

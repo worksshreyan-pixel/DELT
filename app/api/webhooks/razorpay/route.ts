@@ -99,6 +99,28 @@ export async function POST(request: Request) {
               read: false,
             });
           }
+
+          // Transactional Emails
+          try {
+            const canonicalDealUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/deal/${payment.deals?.token || ''}`;
+            const { sendPaymentConfirmationEmail } = await import('@/lib/email');
+            
+            if (payment.deals?.client_email) {
+              await sendPaymentConfirmationEmail({
+                recipientName: payment.client_name,
+                recipientEmail: payment.deals.client_email,
+                creatorName: 'Creator',
+                dealTitle: payment.deal_title,
+                amount: Number(payment.amount),
+                currency: payment.currency || 'INR',
+                transactionId: `TXN-${payment.id.slice(0, 6)}`,
+                isCreator: false,
+                dealUrl: canonicalDealUrl,
+              });
+            }
+          } catch (e) {
+            console.error('Error sending webhook payment email:', e);
+          }
         }
       }
     }

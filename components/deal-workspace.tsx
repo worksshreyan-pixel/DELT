@@ -44,7 +44,8 @@ import { createClient } from '@/lib/supabase/client';
 import { hasSupabasePublicConfig } from '@/lib/env';
 import { getDealPublicUrl } from '@/lib/deal-url';
 import { useRouter } from 'next/navigation';
-import { addMessageToStore, addProposalToStore, respondToProposalInStore, permanentlyDeleteDealInStore } from '@/lib/app-store';
+import { cn, serializeDescription } from '@/lib/utils';
+import { addMessageToStore, addProposalToStore, respondToProposalInStore, permanentlyDeleteDealInStore, closeDealInStore } from '@/lib/app-store';
 import type { Deal, DealMessage, PriceProposal, DealEvent, FileVersion, Deliverable, Milestone, Payment, ChangeRequest } from '@/lib/types';
 
 function getInitials(name: string) {
@@ -85,6 +86,10 @@ export function DealWorkspace({
 }: DealWorkspaceProps) {
   const router = useRouter();
   const [currentDeal, setCurrentDeal] = useState<Deal>(deal);
+
+  useEffect(() => {
+    setCurrentDeal(deal);
+  }, [deal]);
   const [activeTab, setActiveTab] = useState('overview');
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -123,14 +128,19 @@ export function DealWorkspace({
 
       if (!res.ok) {
         const errJson = await res.json();
-        setCloseError(errJson.error || 'Failed to close and delete deal.');
+        setCloseError(errJson.error || 'Failed to close deal.');
         setClosing(false);
         return;
       }
 
-      permanentlyDeleteDealInStore(currentDeal.id);
+      closeDealInStore(currentDeal.id);
+      setCurrentDeal((prev) => ({
+        ...prev,
+        status: 'closed',
+        updatedAt: new Date().toISOString(),
+      }));
       setCloseDialogOpen(false);
-      router.push('/deals');
+      setClosing(false);
     } catch (err: any) {
       console.error('Error closing deal:', err);
       setCloseError(err.message || 'Failed to close deal.');
@@ -261,6 +271,7 @@ export function DealWorkspace({
             <TabsTrigger value="files">Files</TabsTrigger>
             <TabsTrigger value="payments">Payments</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
+            <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
         </div>
 
@@ -278,6 +289,9 @@ export function DealWorkspace({
         </TabsContent>
         <TabsContent value="activity" className="mt-4">
           <ActivityTab events={events} />
+        </TabsContent>
+        <TabsContent value="settings" className="mt-4">
+          <SettingsTab deal={currentDeal} onUpdateDeal={setCurrentDeal} fileVersions={fileVersions} />
         </TabsContent>
       </Tabs>
     </div>
@@ -437,6 +451,7 @@ function ChatTab({
   const [proposalOpen, setProposalOpen] = useState(false);
   const [counterOpen, setCounterOpen] = useState(false);
   const [activeProposal, setActiveProposal] = useState<PriceProposal | null>(null);
+  const [submittingProposal, setSubmittingProposal] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Supabase Realtime Subscription Scoped to Deal
@@ -492,8 +507,9 @@ function ChatTab({
           };
           if (payload.eventType === 'INSERT') {
             setLocalProposals((prev) => {
-              if (prev.some((p) => p.id === formattedProp.id)) return prev;
-              return [...prev, formattedProp];
+              const filtered = prev.filter((p) => !(p.id.startsWith('prop_') && p.proposedPrice === formattedProp.proposedPrice && p.proposedByRole === formattedProp.proposedByRole));
+              if (filtered.some((p) => p.id === formattedProp.id)) return filtered;
+              return [...filtered, formattedProp];
             });
           } else if (payload.eventType === 'UPDATE') {
             setLocalProposals((prev) =>
@@ -512,6 +528,14 @@ function ChatTab({
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [localMessages]);
+
+  useEffect(() => {
+    setLocalMessages(messages);
+  }, [messages]);
+
+  useEffect(() => {
+    setLocalProposals(proposals);
+  }, [proposals]);
 
   async function sendMessage() {
     if (!input.trim()) return;
@@ -667,9 +691,11 @@ function ChatTab({
               <ProposalForm
                 currentPrice={deal.price}
                 currency={deal.currency}
+                disabled={submittingProposal}
                 onSubmit={async (price, reason) => {
+                  setSubmittingProposal(true);
                   try {
-                    await fetch('/api/negotiation/propose', {
+                    const res = await fetch('/api/negotiation/propose', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({
@@ -680,12 +706,34 @@ function ChatTab({
                         proposedByName: creatorName,
                       }),
                     });
+                    const json = await res.json();
+                    if (res.ok && json.proposal) {
+                      const newProp: PriceProposal = {
+                        id: json.proposal.id,
+                        dealId: json.proposal.deal_id,
+                        direction: json.proposal.direction,
+                        previousPrice: Number(json.proposal.previous_price),
+                        proposedPrice: Number(json.proposal.proposed_price),
+                        reason: json.proposal.reason,
+                        state: json.proposal.state,
+                        proposedBy: json.proposal.proposed_by,
+                        proposedByName: json.proposal.proposed_by_name,
+                        proposedByRole: json.proposal.proposed_by_role,
+                        createdAt: json.proposal.created_at,
+                      };
+                      addProposalToStore(deal.id, price, reason, 'creator', creatorName);
+                      setLocalProposals((prev) => {
+                        const filtered = prev.filter((p) => !p.id.startsWith('prop_'));
+                        if (filtered.some((p) => p.id === newProp.id)) return filtered;
+                        return [...filtered, newProp];
+                      });
+                    }
                   } catch (e) {
                     console.error(e);
+                  } finally {
+                    setSubmittingProposal(false);
+                    setProposalOpen(false);
                   }
-                  const newProp = addProposalToStore(deal.id, price, reason, 'creator', creatorName);
-                  setLocalProposals((prev) => [...prev, newProp]);
-                  setProposalOpen(false);
                 }}
               />
             </DialogContent>
@@ -722,9 +770,11 @@ function ChatTab({
                   currency={deal.currency}
                   onAccept={() => handleAcceptProposal(pendingProposal)}
                   onDecline={handleDeclineProposal}
+                  disabled={submittingProposal}
                   onSubmit={async (price, reason) => {
+                    setSubmittingProposal(true);
                     try {
-                      await fetch('/api/negotiation/propose', {
+                      const res = await fetch('/api/negotiation/propose', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -736,12 +786,36 @@ function ChatTab({
                           parentProposalId: pendingProposal.id,
                         }),
                       });
+                      const json = await res.json();
+                      if (res.ok && json.proposal) {
+                        const counterProp: PriceProposal = {
+                          id: json.proposal.id,
+                          dealId: json.proposal.deal_id,
+                          direction: json.proposal.direction,
+                          previousPrice: Number(json.proposal.previous_price),
+                          proposedPrice: Number(json.proposal.proposed_price),
+                          reason: json.proposal.reason,
+                          state: json.proposal.state,
+                          proposedBy: json.proposal.proposed_by,
+                          proposedByName: json.proposal.proposed_by_name,
+                          proposedByRole: json.proposal.proposed_by_role,
+                          counterProposalId: pendingProposal.id,
+                          createdAt: json.proposal.created_at,
+                        };
+                        addProposalToStore(deal.id, price, reason, 'creator', creatorName, pendingProposal.id);
+                        setLocalProposals((prev) => {
+                          const filtered = prev.map((p) => p.id === pendingProposal.id ? { ...p, state: 'countered' as const } : p)
+                            .filter((p) => !p.id.startsWith('prop_'));
+                          if (filtered.some((p) => p.id === counterProp.id)) return filtered;
+                          return [...filtered, counterProp];
+                        });
+                      }
                     } catch (e) {
                       console.error(e);
+                    } finally {
+                      setSubmittingProposal(false);
+                      setCounterOpen(false);
                     }
-                    const counterProp = addProposalToStore(deal.id, price, reason, 'creator', creatorName);
-                    setLocalProposals((prev) => [...prev, counterProp]);
-                    setCounterOpen(false);
                   }}
                 />
               </DialogContent>
@@ -757,10 +831,12 @@ function ProposalForm({
   currentPrice,
   currency,
   onSubmit,
+  disabled,
 }: {
   currentPrice: number;
   currency: 'INR' | 'USD' | 'EUR' | 'GBP';
   onSubmit: (price: number, reason: string) => void;
+  disabled?: boolean;
 }) {
   const [price, setPrice] = useState('');
   const [reason, setReason] = useState('');
@@ -797,8 +873,8 @@ function ProposalForm({
         </div>
       </div>
       <DialogFooter>
-        <Button onClick={() => onSubmit(Number(price), reason)} disabled={!price}>
-          Send Proposal
+        <Button onClick={() => onSubmit(Number(price), reason)} disabled={!price || disabled}>
+          {disabled ? 'Sending...' : 'Send Proposal'}
         </Button>
       </DialogFooter>
     </>
@@ -811,12 +887,14 @@ function CounterOfferForm({
   onAccept,
   onDecline,
   onSubmit,
+  disabled,
 }: {
   proposal: PriceProposal;
   currency: 'INR' | 'USD' | 'EUR' | 'GBP';
   onAccept: () => void;
   onDecline: () => void;
   onSubmit: (price: number, reason: string) => void;
+  disabled?: boolean;
 }) {
   const [price, setPrice] = useState('');
   const [reason, setReason] = useState('');
@@ -870,16 +948,16 @@ function CounterOfferForm({
         </div>
       </div>
       <DialogFooter className="gap-2">
-        <Button variant="ghost" onClick={onDecline} className="mr-auto text-muted-foreground">
+        <Button variant="ghost" onClick={onDecline} className="mr-auto text-muted-foreground" disabled={disabled}>
           <X className="h-4 w-4 mr-1.5" />
           Decline
         </Button>
-        <Button variant="outline" onClick={onAccept} className="gap-1.5">
+        <Button variant="outline" onClick={onAccept} className="gap-1.5" disabled={disabled}>
           <Check className="h-4 w-4" />
           Accept
         </Button>
-        <Button onClick={() => onSubmit(Number(price), reason)} disabled={!price}>
-          Send Counter
+        <Button onClick={() => onSubmit(Number(price), reason)} disabled={!price || disabled}>
+          {disabled ? 'Sending...' : 'Send Counter'}
         </Button>
       </DialogFooter>
     </>
@@ -911,6 +989,8 @@ function FilesTab({
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
 
+
+
   async function handleUploadFile(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedFile) return;
@@ -919,11 +999,22 @@ function FilesTab({
     setUploadError('');
 
     try {
+      const previewBlob = await generateClientPreview(selectedFile);
+
       const formData = new FormData();
       formData.append('dealId', deal.id);
       formData.append('deliverableId', selectedDeliverable || deliverables[0]?.id || 'del-1');
       formData.append('description', fileDesc);
       formData.append('file', selectedFile);
+      if (previewBlob) {
+        const originalExt = selectedFile.name.split('.').pop()?.toLowerCase();
+        let previewExt = originalExt;
+        if (previewBlob.type === 'image/jpeg' && originalExt !== 'jpg' && originalExt !== 'jpeg') {
+          previewExt = 'jpg';
+        }
+        const previewName = selectedFile.name.replace(/\.[^.]+$/, `-preview.${previewExt}`);
+        formData.append('previewFile', new File([previewBlob], previewName, { type: previewBlob.type }));
+      }
 
       const res = await fetch('/api/files/upload', {
         method: 'POST',
@@ -1273,4 +1364,375 @@ function ActivityTab({ events }: { events: DealEvent[] }) {
       </CardContent>
     </Card>
   );
+}
+
+function SettingsTab({
+  deal,
+  onUpdateDeal,
+  fileVersions,
+}: {
+  deal: Deal;
+  onUpdateDeal: (deal: Deal) => void;
+  fileVersions: FileVersion[];
+}) {
+  const router = useRouter();
+  const [previewEnabled, setPreviewEnabled] = useState(deal.previewEnabled || false);
+  const [updating, setUpdating] = useState(false);
+  const [statusText, setStatusText] = useState('');
+  const [progressText, setProgressText] = useState('');
+
+  // Sync state if deal updates
+  useEffect(() => {
+    setPreviewEnabled(deal.previewEnabled || false);
+  }, [deal]);
+
+  async function handleTogglePreview(checked: boolean) {
+    setUpdating(true);
+    setStatusText('Updating setting...');
+    setProgressText('');
+    try {
+      const supabase = createClient();
+      
+      const serializedDesc = serializeDescription(deal.description, checked);
+      // Update setting in Supabase deals table
+      const { error: updateErr } = await supabase
+        .from('deals')
+        .update({ description: serializedDesc })
+        .eq('id', deal.id);
+
+      if (updateErr) throw updateErr;
+
+      // Update local state
+      onUpdateDeal({ ...deal, previewEnabled: checked, description: serializedDesc || '' });
+      setPreviewEnabled(checked);
+      setStatusText('Setting saved.');
+
+      // If checked is true, do retrospective preview generation for supported files
+      if (checked) {
+        setStatusText('Checking for files needing previews...');
+        // Find supported files without previews
+        const filesToProcess: { versionId: string; fileId: string; fileItem: any }[] = [];
+        
+        for (const version of fileVersions) {
+          const files = Array.isArray(version.files) ? version.files : [];
+          for (const f of files) {
+            const ext = f.name.split('.').pop()?.toLowerCase() || '';
+            const isImage = (f.type || '').startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp'].includes(ext);
+            const isPdf = f.type === 'application/pdf' || ext === 'pdf';
+            const isVideo = (f.type || '').startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext);
+            const isSupported = isImage || isPdf || isVideo;
+            
+            // If supported and does not have a ready preview
+            if (isSupported && (!f.previewPath || f.previewStatus !== 'ready') && f.deletionStatus !== 'deleted') {
+              filesToProcess.push({
+                versionId: version.id,
+                fileId: f.id,
+                fileItem: f,
+              });
+            }
+          }
+        }
+
+        if (filesToProcess.length === 0) {
+          setStatusText('Preview ready');
+          setUpdating(false);
+          return;
+        }
+
+        let completedCount = 0;
+        setStatusText(`Generating previews... 0 of ${filesToProcess.length} files completed`);
+
+        for (const target of filesToProcess) {
+          try {
+            setProgressText(`Processing: ${target.fileItem.name}...`);
+
+            const targetExt = target.fileItem.name.split('.').pop()?.toLowerCase() || '';
+            const targetIsVideo = (target.fileItem.type || '').startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(targetExt);
+
+            if (targetIsVideo) {
+              const formData = new FormData();
+              formData.append('dealId', deal.id);
+              formData.append('fileVersionId', target.versionId);
+              formData.append('fileId', target.fileId);
+
+              const uploadRes = await fetch('/api/files/preview-upload', {
+                method: 'POST',
+                body: formData,
+              });
+
+              if (!uploadRes.ok) throw new Error('Failed to start server-side video preview generation');
+
+              completedCount++;
+              setStatusText(`Generating previews... ${completedCount} of ${filesToProcess.length} files completed`);
+              continue;
+            }
+            
+            // 1. Get secure signed download URL for original file
+            const signedRes = await fetch('/api/files/signed-url', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                dealId: deal.id,
+                filePath: target.fileItem.path,
+                isCreator: true,
+              }),
+            });
+
+            if (!signedRes.ok) throw new Error('Failed to get download URL');
+            const { signedUrl } = await signedRes.json();
+            if (!signedUrl) throw new Error('Download URL not returned');
+
+            // 2. Fetch the file data
+            const fileDataRes = await fetch(signedUrl);
+            if (!fileDataRes.ok) throw new Error('Failed to download file');
+            const blob = await fileDataRes.blob();
+            const fileObj = new File([blob], target.fileItem.name, { type: target.fileItem.type });
+
+            // 3. Generate preview client-side
+            const previewBlob = await generateClientPreview(fileObj);
+            if (!previewBlob) throw new Error('Failed to generate preview copy');
+
+            // 4. Upload preview
+            const originalExt = fileObj.name.split('.').pop()?.toLowerCase();
+            let previewExt = originalExt || 'jpg';
+            if (previewBlob.type === 'image/jpeg' && originalExt !== 'jpg' && originalExt !== 'jpeg') {
+              previewExt = 'jpg';
+            }
+            const originalBaseName = fileObj.name.substring(0, fileObj.name.lastIndexOf('.')) || fileObj.name;
+            const previewName = `preview-${originalBaseName}.${previewExt}`;
+
+            const formData = new FormData();
+            formData.append('dealId', deal.id);
+            formData.append('fileVersionId', target.versionId);
+            formData.append('fileId', target.fileId);
+            formData.append('previewFile', new File([previewBlob], previewName, { type: previewBlob.type }));
+
+            const uploadRes = await fetch('/api/files/preview-upload', {
+              method: 'POST',
+              body: formData,
+            });
+
+            if (!uploadRes.ok) throw new Error('Failed to upload preview file');
+            
+            completedCount++;
+            setStatusText(`Generating previews... ${completedCount} of ${filesToProcess.length} files completed`);
+          } catch (fileErr: any) {
+            console.error(`Failed to process preview for ${target.fileItem.name}:`, fileErr);
+            completedCount++;
+            setStatusText(`Generating previews... ${completedCount} of ${filesToProcess.length} files completed`);
+          }
+        }
+
+        setStatusText('Preview ready');
+        setProgressText('');
+        // Trigger a reload or state refresh
+        router.refresh();
+      } else {
+        setStatusText('');
+        setProgressText('');
+      }
+    } catch (err: any) {
+      console.error('Error toggling preview settings:', err);
+      setStatusText(`Error: ${err.message || 'Failed to update settings'}`);
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Deal Workspace Settings</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-sm font-medium">Client File Preview</span>
+              <p className="text-xs text-muted-foreground pr-4">
+                Let clients inspect watermarked previews before payment.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={updating}
+              onClick={() => handleTogglePreview(!previewEnabled)}
+              className={cn(
+                "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50",
+                previewEnabled ? "bg-primary" : "bg-muted"
+              )}
+            >
+              <span
+                className={cn(
+                  "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-background shadow ring-0 transition duration-200 ease-in-out",
+                  previewEnabled ? "translate-x-5" : "translate-x-0"
+                )}
+              />
+            </button>
+          </div>
+
+          {(statusText || progressText) && (
+            <div className="mt-3 pt-3 border-t border-border space-y-1 text-xs">
+              {statusText && <p className="font-semibold text-primary">{statusText}</p>}
+              {progressText && <p className="text-muted-foreground">{progressText}</p>}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const loadPdfLib = () => {
+  return new Promise((resolve, reject) => {
+    if ((window as any).PDFLib) return resolve((window as any).PDFLib);
+    const script = document.createElement('script');
+    script.src = '/lib/pdf-lib.min.js';
+    script.onload = () => resolve((window as any).PDFLib);
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+};
+
+async function generateClientPreview(file: File): Promise<Blob | null> {
+  const fileType = file.type || '';
+  const ext = file.name.split('.').pop()?.toLowerCase() || '';
+  const isImage = fileType.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp'].includes(ext);
+  const isPdf = fileType === 'application/pdf' || ext === 'pdf';
+
+  if (isImage) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const maxDim = 1000;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > maxDim) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            }
+          } else {
+            if (height > maxDim) {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(null);
+            return;
+          }
+
+          ctx.drawImage(img, 0, 0, width, height);
+
+          ctx.save();
+
+          // Calculate font size dynamically based on dimensions (responsive)
+          const fontSize = Math.max(
+            32,
+            Math.round(Math.min(width, height) * 0.045)
+          );
+
+          ctx.strokeStyle = 'rgba(70, 70, 70, 0.35)'; // Hollow dark gray outline at 35% opacity
+          ctx.lineWidth = 2;
+          ctx.font = `bold ${fontSize}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+
+          const text = 'DELT PREVIEW';
+          const textWidth = ctx.measureText(text).width;
+          const stepX = textWidth + 35; // Compact horizontal gap (20-50px)
+          const stepY = fontSize + 45;   // Compact vertical gap (30-60px)
+
+          // Rotate by -30 degrees
+          ctx.rotate((-30 * Math.PI) / 180);
+
+          // Render staggered tiled grid of hollow watermarks
+          for (let y = -height * 2; y < height * 2.5; y += stepY) {
+            const xOffset = (Math.round(y / stepY) % 2 === 0) ? 0 : stepX / 2;
+            for (let x = -width * 2 - xOffset; x < width * 2.5; x += stepX) {
+              ctx.strokeText(text, x + xOffset, y);
+            }
+          }
+          ctx.restore();
+
+          canvas.toBlob((blob) => {
+            resolve(blob);
+          }, 'image/jpeg', 0.6);
+        };
+        img.onerror = () => resolve(null);
+        img.src = event.target?.result as string;
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  if (isPdf) {
+    try {
+      const PDFLib = (await loadPdfLib()) as any;
+      if (!PDFLib) return null;
+
+      const fileBytes = new Uint8Array(await file.arrayBuffer());
+      const pdfDoc = await PDFLib.PDFDocument.load(fileBytes);
+      const font = await pdfDoc.embedFont(PDFLib.StandardFonts.HelveticaBold);
+      const pages = pdfDoc.getPages();
+      const pagesToKeep = pages.slice(0, 5);
+
+      const previewDoc = await PDFLib.PDFDocument.create();
+      const copiedPages = await previewDoc.copyPages(pdfDoc, pagesToKeep.map((_: any, i: number) => i));
+
+      for (const page of copiedPages) {
+        previewDoc.addPage(page);
+        const { width, height } = page.getSize();
+
+        // Staggered grid watermark on PDF page with outline/stroke configuration
+        const text = 'DELT PREVIEW';
+        const fontSize = Math.max(28, Math.round(Math.min(width, height) * 0.045));
+        const stepX = (fontSize * 8) + 35; // approximate width of 'DELT PREVIEW' + horizontal gap
+        const stepY = fontSize + 45;       // vertical gap
+        const rotationAngle = 30; // 30 degrees rotation
+
+        page.pushOperators(
+          PDFLib.pushGraphicsState(),
+          PDFLib.setStrokingColor(PDFLib.rgb(0.27, 0.27, 0.27)), // rgb(70,70,70) -> 70/255 = 0.27
+          PDFLib.setLineWidth(2),
+          PDFLib.setTextRenderingMode(PDFLib.TextRenderingMode.Outline)
+        );
+
+        for (let y = -100; y < height + 200; y += stepY) {
+          const xOffset = (Math.round(y / stepY) % 2 === 0) ? 0 : stepX / 2;
+          for (let x = -100 - xOffset; x < width + 200; x += stepX) {
+            page.drawText(text, {
+              x: x + xOffset,
+              y: y,
+              size: fontSize,
+              font: font,
+              opacity: 0.35, // 35% opacity
+              rotate: PDFLib.degrees(rotationAngle),
+            });
+          }
+        }
+
+        page.pushOperators(PDFLib.popGraphicsState());
+      }
+
+      const previewBytes = await previewDoc.save();
+      return new Blob([previewBytes], { type: 'application/pdf' });
+    } catch (err) {
+      console.error('Error generating PDF preview client-side:', err);
+      return null;
+    }
+  }
+
+  return null;
 }

@@ -23,6 +23,7 @@ const statusFilters: { label: string; value: DealStatus | 'all' }[] = [
   { label: 'Payment Pending', value: 'payment_pending' },
   { label: 'Paid', value: 'paid' },
   { label: 'Completed', value: 'completed' },
+  { label: 'Closed', value: 'closed' },
 ];
 
 type SortKey = 'updated' | 'price' | 'deadline';

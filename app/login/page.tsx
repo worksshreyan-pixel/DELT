@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Mail, Lock, ArrowRight, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { Mail, Lock, ArrowRight, Eye, EyeOff, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -73,6 +73,16 @@ export default function LoginPage() {
     }
   }
 
+  const urlError = searchParams.get('error');
+  const isVerified = searchParams.get('verified') === 'true';
+
+  let bannerMessage = '';
+  if (urlError === 'verification_link_expired') {
+    bannerMessage = 'This verification link has expired or has already been used. Please log in or request a new link.';
+  } else if (urlError === 'auth_callback_failed') {
+    bannerMessage = 'Authentication callback could not be completed. Please try signing in below.';
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-muted/20">
       <div className="flex flex-1 items-center justify-center px-4 py-12">
@@ -83,6 +93,20 @@ export default function LoginPage() {
           <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
             <h1 className="text-xl font-display font-semibold tracking-tight mb-1">Welcome back</h1>
             <p className="text-sm text-muted-foreground mb-6">Log in to your DELT workspace.</p>
+
+            {isVerified && (
+              <div className="mb-4 flex items-start gap-2 rounded-lg bg-emerald-500/10 p-3 text-xs text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>Email verified successfully! You can now sign in to your workspace.</span>
+              </div>
+            )}
+
+            {bannerMessage && (
+              <div className="mb-4 flex items-start gap-2 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>{bannerMessage}</span>
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">

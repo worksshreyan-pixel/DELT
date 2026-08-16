@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { parseDescription } from '@/lib/utils';
 
 export async function POST(request: Request) {
   try {
@@ -16,12 +17,26 @@ export async function POST(request: Request) {
     const deliverableId = formData.get('deliverableId') as string;
     const description = formData.get('description') as string;
     const file = formData.get('file') as File | null;
+    const previewFile = formData.get('previewFile') as File | null;
 
     if (!dealId || !file) {
       return NextResponse.json({ error: 'Deal ID and file are required' }, { status: 400 });
     }
 
     const admin = createAdminClient();
+
+    // Fetch deal early to get previewEnabled status
+    const { data: deal, error: dealError } = await admin
+      .from('deals')
+      .select('*')
+      .eq('id', dealId)
+      .maybeSingle();
+
+    if (dealError || !deal) {
+      return NextResponse.json({ error: 'Deal not found' }, { status: 404 });
+    }
+
+    const { previewEnabled } = parseDescription(deal.description);
 
     // 1. Check storage usage quota
     const { data: storageRecord } = await admin
@@ -65,12 +80,65 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Failed to upload file to storage' }, { status: 500 });
     }
 
+    // Debug logging for upload process
+    console.log(`[PREVIEW_UPLOAD]
+originalName=${file.name}
+originalMimeType=${file.type}
+previewFilePresent=${!!previewFile}
+previewFileName=${previewFile ? previewFile.name : ''}
+previewMimeType=${previewFile ? previewFile.type : ''}
+previewSize=${previewFile ? previewFile.size : 0}`);
+
+    let previewPath = '';
+    let previewStatus = 'failed';
+    let previewUploadErrMessage = '';
+
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    const isVideo = (file.type || '').startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext);
+
+    if (previewFile) {
+      const previewBuffer = Buffer.from(await previewFile.arrayBuffer());
+      const previewCleanName = previewFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      previewPath = `previews/${dealId}/v${versionNum}/${Date.now()}_${previewCleanName}`;
+
+      const { error: previewUploadError } = await admin.storage
+        .from('deal-files')
+        .upload(previewPath, previewBuffer, {
+          contentType: previewFile.type || 'application/octet-stream',
+          upsert: true,
+        });
+
+      if (!previewUploadError) {
+        previewStatus = 'ready';
+      } else {
+        previewUploadErrMessage = previewUploadError.message || JSON.stringify(previewUploadError);
+        console.error('Preview upload error:', previewUploadError);
+      }
+    } else if (previewEnabled && isVideo) {
+      previewStatus = 'processing';
+    }
+
+    console.log(`[PREVIEW_STORAGE]
+previewPath=${previewPath}
+uploadSuccess=${previewStatus === 'ready'}
+uploadError=${previewUploadErrMessage}`);
+
+    console.log(`[PREVIEW_METADATA]
+deliverableId=${deliverableId}
+previewPath=${previewPath}
+previewType=${previewFile ? previewFile.type : (isVideo ? 'video/mp4' : '')}
+previewStatus=${previewFile || (previewEnabled && isVideo) ? previewStatus : ''}`);
+
     const fileItem = {
       id: `f_${Date.now()}`,
       name: file.name,
       size: file.size,
       type: file.type,
       path: storagePath,
+      previewPath: (previewEnabled && isVideo) ? undefined : (previewPath || undefined),
+      previewType: (previewEnabled && isVideo) ? 'video/mp4' : (previewFile ? previewFile.type : undefined),
+      previewStatus: (previewEnabled && isVideo) ? 'processing' : (previewFile ? (previewStatus as any) : undefined),
+      previewGeneratedAt: previewFile ? new Date().toISOString() : undefined,
     };
 
     // 4. Insert file_version record
@@ -92,6 +160,14 @@ export async function POST(request: Request) {
 
     if (versionError) {
       return NextResponse.json({ error: versionError.message }, { status: 500 });
+    }
+
+    // Trigger video preview generation in the background if video and preview is enabled
+    if (previewEnabled && isVideo && versionRecord) {
+      const { generateVideoPreview } = await import('@/lib/video-preview');
+      generateVideoPreview(dealId, versionRecord.id, fileItem.id).catch((err) => {
+        console.error('[VIDEO_PREVIEW] Background generation task error:', err);
+      });
     }
 
     // 5. Update user storage usage
@@ -124,6 +200,25 @@ export async function POST(request: Request) {
       type: 'file',
       content: `Uploaded deliverable files (Version ${versionNum})`,
     });
+
+    // 7. Send client email notification
+    try {
+      if (deal?.client_email) {
+        const { sendDeliverablesUploadedEmail } = await import('@/lib/email');
+        const canonicalDealUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/deal/${deal.token}`;
+        await sendDeliverablesUploadedEmail({
+          clientName: deal.client_name || 'Client',
+          clientEmail: deal.client_email,
+          creatorName: user.user_metadata?.displayName || 'Creator',
+          dealTitle: deal.title,
+          versionNumber: versionNum,
+          fileNames: [file.name],
+          dealUrl: canonicalDealUrl,
+        });
+      }
+    } catch (emailErr) {
+      console.error('Error dispatching deliverable upload email:', emailErr);
+    }
 
     return NextResponse.json({ success: true, version: versionRecord });
   } catch (error: any) {

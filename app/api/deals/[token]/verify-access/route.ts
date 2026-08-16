@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { hasSupabasePublicConfig } from '@/lib/env';
+import { parseDescription } from '@/lib/utils';
 
 export async function POST(
   request: Request,
@@ -37,15 +38,38 @@ export async function POST(
       .eq('id', dbDeal.creator_id)
       .maybeSingle();
 
+    const expectedClientEmail = (dbDeal.client_email || '').trim().toLowerCase();
+    const creatorId = dbDeal.creator_id;
+
     // 2. Check Supabase Auth user session from cookies
     const supabase = createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
 
-    const expectedClientEmail = (dbDeal.client_email || '').trim().toLowerCase();
-    const creatorId = dbDeal.creator_id;
+    // 3. Check custom signed client session token from header
+    const clientSessionHeader = request.headers.get('x-client-session-token');
+    const { verifyClientSessionToken } = await import('@/lib/otp');
+    const hasValidClientToken = clientSessionHeader
+      ? verifyClientSessionToken(clientSessionHeader, token, expectedClientEmail)
+      : false;
+
+    let isAuthorizedClient = false;
+    let isCreator = false;
+    let userEmail = '';
+
+    if (user) {
+      userEmail = (user.email || '').trim().toLowerCase();
+      isAuthorizedClient = Boolean(userEmail && userEmail === expectedClientEmail);
+      isCreator = Boolean(
+        user.id === creatorId ||
+        (user.email && creator?.email && user.email.toLowerCase() === creator.email.toLowerCase())
+      );
+    } else if (hasValidClientToken) {
+      isAuthorizedClient = true;
+      userEmail = expectedClientEmail;
+    }
 
     // Unauthenticated user
-    if (!user) {
+    if (!user && !hasValidClientToken) {
       return NextResponse.json({
         authorized: false,
         dealExists: true,
@@ -55,19 +79,15 @@ export async function POST(
       });
     }
 
-    const userEmail = (user.email || '').trim().toLowerCase();
-    const isAuthorizedClient = Boolean(userEmail && userEmail === expectedClientEmail);
-    const isCreator = user.id === creatorId || (user.email && user.email.toLowerCase() === creator?.email?.toLowerCase());
-
     // Unauthorized authenticated user
     if (!isAuthorizedClient && !isCreator) {
       return NextResponse.json(
         {
           authorized: false,
-          error: `You are signed in as ${user.email}, but this Deal workspace is private to ${dbDeal.client_email}.`,
+          error: `You are signed in as ${user?.email || 'an unauthorized account'}, but this Deal workspace is private to ${dbDeal.client_email}.`,
           dealTitle: dbDeal.title,
           clientEmail: dbDeal.client_email,
-          userEmail: user.email,
+          userEmail: user?.email,
         },
         { status: 403 }
       );
@@ -96,7 +116,7 @@ export async function POST(
         clientName: dbDeal.client_name,
         clientEmail: dbDeal.client_email,
         title: dbDeal.title,
-        description: dbDeal.description || '',
+        description: parseDescription(dbDeal.description).description,
         scope: Array.isArray(dbDeal.scope) ? dbDeal.scope : [],
         price: Number(dbDeal.price),
         currency: dbDeal.currency || 'INR',
@@ -106,6 +126,7 @@ export async function POST(
         paymentStatus: dbDeal.payment_status || 'pending',
         lastActivityAt: dbDeal.last_activity_at || dbDeal.created_at,
         createdAt: dbDeal.created_at,
+        previewEnabled: parseDescription(dbDeal.description).previewEnabled,
       },
       clientName: dbDeal.client_name,
       clientEmail: dbDeal.client_email,

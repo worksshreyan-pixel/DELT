@@ -44,63 +44,77 @@ export async function POST(
     }
 
     const dealId = deal.id;
+    const now = new Date().toISOString();
 
-    // 3. Cascade delete associated Supabase Storage objects
-    try {
-      const { data: folderItems } = await admin.storage.from('deal-files').list(dealId);
-      if (folderItems && folderItems.length > 0) {
-        // Collect all file paths recursively
-        const filePaths: string[] = [];
-        for (const item of folderItems) {
-          if (item.id) {
-            filePaths.push(`${dealId}/${item.name}`);
-          }
-          // Also check subfolders if any (e.g. v1, v2)
-          const { data: subItems } = await admin.storage.from('deal-files').list(`${dealId}/${item.name}`);
-          if (subItems && subItems.length > 0) {
-            for (const sub of subItems) {
-              filePaths.push(`${dealId}/${item.name}/${sub.name}`);
-            }
-          }
-        }
-        if (filePaths.length > 0) {
-          await admin.storage.from('deal-files').remove(filePaths);
-        }
-      }
-    } catch (storageErr) {
-      console.warn('Storage files cleanup notice:', storageErr);
-    }
-
-    // 4. Cascade delete database records in dependency order
-    await admin.from('deal_messages').delete().eq('deal_id', dealId);
-    await admin.from('deal_events').delete().eq('deal_id', dealId);
-    await admin.from('price_proposals').delete().eq('deal_id', dealId);
-    await admin.from('file_versions').delete().eq('deal_id', dealId);
-    await admin.from('deliverables').delete().eq('deal_id', dealId);
-    await admin.from('deal_participants').delete().eq('deal_id', dealId);
-    await admin.from('deal_otps').delete().eq('deal_id', dealId);
-    await admin.from('notifications').delete().eq('deal_id', dealId);
-
-    // 5. Permanently delete the deal record
-    const { error: deleteError } = await admin
+    // 3. Update Deal status to 'closed'
+    const { error: updateError } = await admin
       .from('deals')
-      .delete()
+      .update({
+        status: 'closed',
+        updated_at: now,
+        last_activity_at: now,
+      })
       .eq('id', dealId);
 
-    if (deleteError) {
-      return NextResponse.json(
-        { error: deleteError.message || 'Failed to delete deal record.' },
-        { status: 500 }
-      );
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
+
+    // 4. Retrieve all associated file versions and mark files for retention
+    const { data: fileVersions } = await admin
+      .from('file_versions')
+      .select('*')
+      .eq('deal_id', dealId);
+
+    const { env } = await import('@/lib/env');
+    const retentionDays = env.app.fileRetentionDays;
+    const retentionUntil = new Date(Date.now() + retentionDays * 24 * 60 * 60 * 1000).toISOString();
+
+    if (fileVersions && fileVersions.length > 0) {
+      for (const version of fileVersions) {
+        const filesList = Array.isArray(version.files) ? version.files : [];
+        const updatedFiles = filesList.map((f: any) => ({
+          ...f,
+          deletionStatus: 'retention',
+          retentionUntil: retentionUntil,
+        }));
+
+        await admin
+          .from('file_versions')
+          .update({
+            files: updatedFiles,
+          })
+          .eq('id', version.id);
+      }
+    }
+
+    // 5. Create timeline event & system message
+    await admin.from('deal_events').insert({
+      deal_id: dealId,
+      type: 'deal_closed',
+      actor_id: user.id,
+      actor_name: user.user_metadata?.displayName || 'Creator',
+      actor_role: 'creator',
+      description: `Deal "${deal.title}" closed by creator. Files entered a ${retentionDays}-day retention period.`,
+    });
+
+    await admin.from('deal_messages').insert({
+      deal_id: dealId,
+      sender_id: 'system',
+      sender_name: 'DELT System',
+      sender_role: 'creator',
+      type: 'system',
+      content: `Deal has been closed by the creator. Files entered a ${retentionDays}-day retention period.`,
+    });
 
     return NextResponse.json({
       success: true,
-      message: 'Deal closed and permanently deleted.',
+      message: 'Deal closed and files placed in retention.',
       dealId: dealId,
+      status: 'closed',
     });
   } catch (error: any) {
-    console.error('Error closing and deleting deal:', error);
+    console.error('Error closing deal:', error);
     return NextResponse.json(
       { error: error?.message || 'Internal server error closing deal.' },
       { status: 500 }

@@ -44,7 +44,19 @@ export function FileCard({ file, locked }: FileCardProps) {
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium truncate">{file.name}</p>
-        <p className="text-xs text-muted-foreground">{formatBytes(file.size)}</p>
+        <div className="flex items-center gap-2 mt-0.5">
+          <p className="text-xs text-muted-foreground">{formatBytes(file.size)}</p>
+          {file.previewStatus === 'ready' && (
+            <span className="text-[10px] text-emerald-500 font-medium bg-emerald-500/10 px-1.5 py-0.5 rounded-md">
+              Preview ready
+            </span>
+          )}
+          {file.previewStatus === 'failed' && (
+            <span className="text-[10px] text-red-500 font-medium bg-red-500/10 px-1.5 py-0.5 rounded-md">
+              Preview unavailable
+            </span>
+          )}
+        </div>
       </div>
       {!locked && (
         <button className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity hover:bg-accent">

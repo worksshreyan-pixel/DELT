@@ -99,6 +99,50 @@ export async function POST(request: Request) {
       });
     }
 
+    // 7. Transactional Email Notification
+    try {
+      const isClientResponder = responderRole === 'client';
+      const { sendProposalStatusEmail } = await import('@/lib/email');
+
+      if (isClientResponder) {
+        // Notify Creator
+        const { data: creatorProfile } = await admin
+          .from('profiles')
+          .select('email, display_name')
+          .eq('id', deal.creator_id)
+          .maybeSingle();
+
+        if (creatorProfile?.email) {
+          await sendProposalStatusEmail({
+            recipientName: creatorProfile.display_name || 'Creator',
+            recipientEmail: creatorProfile.email,
+            responderName: responderName || 'Client',
+            dealTitle: deal.title,
+            price: Number(proposal.proposed_price),
+            currency: deal.currency || 'INR',
+            accepted: response === 'accept',
+            dealUrl: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/deals/${deal.id}`,
+          });
+        }
+      } else {
+        // Notify Client
+        if (deal.client_email) {
+          await sendProposalStatusEmail({
+            recipientName: deal.client_name || 'Client',
+            recipientEmail: deal.client_email,
+            responderName: responderName || 'Creator',
+            dealTitle: deal.title,
+            price: Number(proposal.proposed_price),
+            currency: deal.currency || 'INR',
+            accepted: response === 'accept',
+            dealUrl: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/deal/${deal.token}`,
+          });
+        }
+      }
+    } catch (emailErr) {
+      console.error('Error sending proposal status email:', emailErr);
+    }
+
     return NextResponse.json({ success: true, state: newState });
   } catch (error: any) {
     console.error('Error responding to price proposal:', error);

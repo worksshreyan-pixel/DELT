@@ -7,6 +7,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { hasSupabasePublicConfig } from '@/lib/env';
+import { parseDescription } from '@/lib/utils';
 import type {
   Deal,
   Client,
@@ -322,7 +323,7 @@ export async function syncStoreFromSupabase(userId: string) {
         clientName: d.client_name,
         clientEmail: d.client_email,
         title: d.title,
-        description: d.description || '',
+        description: parseDescription(d.description).description,
         scope: Array.isArray(d.scope) ? d.scope : [],
         price: Number(d.price),
         currency: d.currency || 'INR',
@@ -333,6 +334,7 @@ export async function syncStoreFromSupabase(userId: string) {
         lastActivityAt: d.last_activity_at || d.created_at,
         createdAt: d.created_at,
         updatedAt: d.updated_at,
+        previewEnabled: parseDescription(d.description).previewEnabled,
       }));
     }
 
@@ -548,6 +550,7 @@ export interface CreateDealInput {
   currency?: string;
   deadline?: string;
   deliverables?: string[];
+  previewEnabled?: boolean;
 }
 
 export function createDealInStore(input: CreateDealInput): Deal {
@@ -597,6 +600,7 @@ export function createDealInStore(input: CreateDealInput): Deal {
     lastActivityAt: now,
     createdAt: now,
     updatedAt: now,
+    previewEnabled: input.previewEnabled || false,
   };
 
   store.deals.unshift(newDeal);
@@ -710,12 +714,19 @@ export function addProposalToStore(
   proposedPrice: number,
   reason: string | undefined,
   proposedByRole: 'creator' | 'client',
-  proposedByName: string
+  proposedByName: string,
+  parentProposalId?: string
 ): PriceProposal {
   const store = currentStoreState;
   const now = new Date().toISOString();
   const deal = store.deals.find((d) => d.id === dealId);
-  const prevPrice = deal ? deal.price : proposedPrice;
+  let prevPrice = deal ? deal.price : proposedPrice;
+  if (parentProposalId) {
+    const parent = (store.proposals[dealId] || []).find((p) => p.id === parentProposalId);
+    if (parent) {
+      prevPrice = parent.proposedPrice;
+    }
+  }
 
   const proposal: PriceProposal = {
     id: `prop_${Date.now()}`,
@@ -729,7 +740,16 @@ export function addProposalToStore(
     proposedByName,
     proposedByRole,
     createdAt: now,
+    counterProposalId: parentProposalId || undefined,
   };
+
+  if (parentProposalId) {
+    const parent = (store.proposals[dealId] || []).find((p) => p.id === parentProposalId);
+    if (parent) {
+      parent.state = 'countered';
+      parent.resolvedAt = now;
+    }
+  }
 
   if (!store.proposals[dealId]) store.proposals[dealId] = [];
   store.proposals[dealId].push(proposal);
@@ -858,6 +878,43 @@ export function simulatePaymentInStore(dealId: string, paymentMethod = 'Razorpay
       dealTitle: deal.title,
       read: false,
       createdAt: now,
+    });
+
+    saveStore(store, store.user.id);
+  }
+}
+
+export function closeDealInStore(dealId: string) {
+  const store = currentStoreState;
+  const deal = store.deals.find((d) => d.id === dealId);
+  if (deal) {
+    const now = new Date().toISOString();
+    deal.status = 'closed';
+    deal.updatedAt = now;
+
+    if (!store.events[dealId]) {
+      store.events[dealId] = [];
+    }
+    const retentionDays = 30;
+    const retentionUntil = new Date(Date.now() + retentionDays * 24 * 60 * 60 * 1000).toISOString();
+
+    store.events[dealId].push({
+      id: `evt_${Date.now()}`,
+      dealId,
+      type: 'deal_closed',
+      actorId: store.user.id,
+      actorName: store.user.displayName || 'Creator',
+      actorRole: 'creator',
+      description: `Deal "${deal.title}" closed by creator. Files entered a ${retentionDays}-day retention period.`,
+      createdAt: now,
+    });
+
+    const versions = store.fileVersions[dealId] || [];
+    versions.forEach((v) => {
+      v.files.forEach((f: any) => {
+        f.deletionStatus = 'retention';
+        f.retentionUntil = retentionUntil;
+      });
     });
 
     saveStore(store, store.user.id);

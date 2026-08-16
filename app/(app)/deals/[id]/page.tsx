@@ -9,6 +9,7 @@ import { FolderKanban } from 'lucide-react';
 import { useAppStore } from '@/lib/app-store';
 import { createClient } from '@/lib/supabase/client';
 import { hasSupabasePublicConfig } from '@/lib/env';
+import { parseDescription } from '@/lib/utils';
 import type { Deal, DealMessage, PriceProposal, DealEvent, Deliverable, FileVersion, Payment } from '@/lib/types';
 
 export default function DealDetailPage() {
@@ -60,7 +61,7 @@ export default function DealDetailPage() {
             creatorId: dbDeal.creator_id,
             clientId: dbDeal.client_id || '',
             title: dbDeal.title,
-            description: dbDeal.description || '',
+            description: parseDescription(dbDeal.description).description,
             scope: Array.isArray(dbDeal.scope) ? dbDeal.scope : [],
             price: Number(dbDeal.price),
             currency: dbDeal.currency || 'INR',
@@ -71,6 +72,7 @@ export default function DealDetailPage() {
             lastActivityAt: dbDeal.last_activity_at || dbDeal.created_at,
             createdAt: dbDeal.created_at,
             updatedAt: dbDeal.updated_at,
+            previewEnabled: parseDescription(dbDeal.description).previewEnabled,
           };
           setDeal(mappedDeal);
 
@@ -180,6 +182,94 @@ export default function DealDetailPage() {
     }
 
     fetchDealData();
+  }, [dealId]);
+
+  useEffect(() => {
+    if (!dealId || !hasSupabasePublicConfig()) return;
+
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`deal-creator:${dealId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'deal_messages', filter: `deal_id=eq.${dealId}` },
+        (payload) => {
+          const raw = payload.new as any;
+          const formattedMsg = {
+            id: raw.id,
+            dealId: raw.deal_id || raw.dealId || dealId,
+            senderId: raw.sender_id || raw.senderId || 'user',
+            senderName: raw.sender_name || raw.senderName || 'User',
+            senderRole: raw.sender_role || raw.senderRole || 'client',
+            type: raw.type,
+            content: raw.content,
+            proposalId: raw.proposal_id || raw.proposalId,
+            createdAt: raw.created_at || raw.createdAt || new Date().toISOString(),
+          };
+          setMessages((prev) => {
+            const exists = prev.some((m) => m.id === formattedMsg.id);
+            if (exists) return prev;
+            // Filter out optimistic message if content matches
+            const filtered = prev.filter((m) => !(m.id.startsWith('msg_') && m.content === formattedMsg.content));
+            return [...filtered, formattedMsg];
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'price_proposals', filter: `deal_id=eq.${dealId}` },
+        (payload) => {
+          const raw = payload.new as any;
+          const formattedProp: PriceProposal = {
+            id: raw.id,
+            dealId: raw.deal_id || raw.dealId || dealId,
+            direction: raw.direction,
+            previousPrice: Number(raw.previous_price ?? raw.previousPrice ?? 0),
+            proposedPrice: Number(raw.proposed_price ?? raw.proposedPrice ?? 0),
+            reason: raw.reason,
+            state: raw.state,
+            proposedBy: raw.proposed_by || raw.proposedBy || 'user',
+            proposedByName: raw.proposed_by_name || raw.proposedByName || 'User',
+            proposedByRole: raw.proposed_by_role || raw.proposedByRole || 'client',
+            counterProposalId: raw.parent_proposal_id || raw.parentProposalId || raw.counter_proposal_id || raw.counterProposalId,
+            createdAt: raw.created_at || raw.createdAt || new Date().toISOString(),
+          };
+          if (payload.eventType === 'INSERT') {
+            setProposals((prev) => {
+              const filtered = prev.filter((p) => !(p.id.startsWith('prop_') && p.proposedPrice === formattedProp.proposedPrice && p.proposedByRole === formattedProp.proposedByRole));
+              if (filtered.some((p) => p.id === formattedProp.id)) return filtered;
+              return [...filtered, formattedProp];
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            setProposals((prev) =>
+              prev.map((p) => (p.id === formattedProp.id ? formattedProp : p))
+            );
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'deals', filter: `id=eq.${dealId}` },
+        (payload) => {
+          const updated = payload.new as any;
+          setDeal((prev) => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              ...updated,
+              price: Number(updated.price ?? prev.price),
+              status: updated.status || prev.status,
+              paymentStatus: updated.payment_status || prev.paymentStatus,
+              lastActivityAt: updated.last_activity_at || prev.lastActivityAt,
+            };
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [dealId]);
 
   if (loading) {

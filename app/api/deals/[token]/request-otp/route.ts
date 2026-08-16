@@ -21,9 +21,14 @@ export async function POST(
     const result = await requestDealOtp(token, email);
 
     if (!result.success) {
+      const status = result.errType === 'DATABASE_INSERT_ERROR' ? 500 : 400;
       return NextResponse.json(
-        { error: result.error, cooldownSeconds: result.cooldownSeconds },
-        { status: 400 }
+        { 
+          error: result.error, 
+          errType: result.errType,
+          cooldownSeconds: result.cooldownSeconds 
+        },
+        { status }
       );
     }
 

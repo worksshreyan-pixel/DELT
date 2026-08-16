@@ -3,6 +3,13 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { getDealPublicUrl } from '@/lib/deal-url';
 import { sendDealInvitationEmail } from '@/lib/email';
 
+function maskEmail(email: string): string {
+  if (!email || !email.includes('@')) return '***';
+  const [local, domain] = email.split('@');
+  if (local.length <= 2) return `${local[0]}***@${domain}`;
+  return `${local[0]}***${local[local.length - 1]}@${domain}`;
+}
+
 export async function POST(
   request: Request,
   { params }: { params: { token: string } }
@@ -37,6 +44,12 @@ export async function POST(
     const canonicalDealUrl = getDealPublicUrl(deal.token);
 
     // 3. Send email
+    console.log(`[INVITATION_EMAIL_START]`, JSON.stringify({
+      dealId: deal.id,
+      clientEmailMasked: maskEmail(deal.client_email),
+      timestamp: new Date().toISOString()
+    }));
+
     const emailResult = await sendDealInvitationEmail({
       clientName: deal.client_name,
       clientEmail: deal.client_email,
@@ -46,6 +59,16 @@ export async function POST(
       dealCurrency: deal.currency || 'INR',
       dealUrl: canonicalDealUrl,
     });
+
+    console.log(`[INVITATION_EMAIL_RESULT]`, JSON.stringify({
+      dealId: deal.id,
+      success: emailResult.success,
+      delivered: emailResult.delivered,
+      simulated: emailResult.simulated,
+      messageId: emailResult.messageId || null,
+      error: emailResult.error || null,
+      timestamp: new Date().toISOString()
+    }));
 
     // 4. Log event
     if (emailResult.delivered) {

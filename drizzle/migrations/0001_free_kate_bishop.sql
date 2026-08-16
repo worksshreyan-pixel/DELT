@@ -1,0 +1,1 @@
+ALTER TABLE "deals" ADD COLUMN "preview_enabled" boolean DEFAULT false NOT NULL;

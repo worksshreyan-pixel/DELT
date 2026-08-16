@@ -96,6 +96,7 @@ function CreateDealForm() {
     deliverables: [],
   });
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [previewEnabled, setPreviewEnabled] = useState(false);
   const [scopeInput, setScopeInput] = useState('');
   const [deliverableInput, setDeliverableInput] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -231,8 +232,27 @@ function CreateDealForm() {
       formData.append('scope', JSON.stringify(data.scope));
       formData.append('deliverables', JSON.stringify(data.deliverables));
 
+      formData.append('previewEnabled', String(previewEnabled));
+
       for (const file of selectedFiles) {
         formData.append('files', file);
+        if (previewEnabled) {
+          try {
+            const previewBlob = await generateClientPreview(file);
+            if (previewBlob) {
+              const originalExt = file.name.split('.').pop()?.toLowerCase();
+              let previewExt = originalExt || 'jpg';
+              if (previewBlob.type === 'image/jpeg' && originalExt !== 'jpg' && originalExt !== 'jpeg') {
+                previewExt = 'jpg';
+              }
+              const originalBaseName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
+              const previewName = `preview-${originalBaseName}.${previewExt}`;
+              formData.append('previewFiles', new File([previewBlob], previewName, { type: previewBlob.type }));
+            }
+          } catch (err) {
+            console.error('Error generating preview for deal creation file:', err);
+          }
+        }
       }
 
       const res = await fetch('/api/deals/create', {
@@ -365,12 +385,14 @@ function CreateDealForm() {
                   <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
                   <span>
                     Client invitation:{' '}
-                    {emailStatus?.delivered ? (
-                      <strong className="text-emerald-600 dark:text-emerald-400 font-medium">Sent to {data.clientEmail}</strong>
+                    {emailStatus === null ? (
+                      <strong className="text-amber-600 dark:text-amber-400 font-medium">Ready to send</strong>
+                    ) : emailStatus?.delivered ? (
+                      <strong className="text-emerald-600 dark:text-emerald-400 font-medium">✓ Sent to {data.clientEmail}</strong>
                     ) : emailStatus?.simulated ? (
                       <strong className="text-muted-foreground font-medium">Simulated (Dev mode)</strong>
                     ) : (
-                      <strong className="text-amber-600 dark:text-amber-400 font-medium">Ready to send</strong>
+                      <strong className="text-amber-600 dark:text-amber-400 font-medium">⚠ Failed to send — use Copy Link / Resend Invitation</strong>
                     )}
                   </span>
                 </div>
@@ -729,6 +751,33 @@ function CreateDealForm() {
                     <p className="text-sm text-muted-foreground">Upload deliverable files or list project milestones.</p>
                   </div>
 
+                  {/* Client File Preview Settings */}
+                  <div className="rounded-xl border border-border bg-muted/30 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <span className="text-sm font-medium">Client File Preview</span>
+                        <p className="text-xs text-muted-foreground pr-4">
+                          Allow the client to preview supported deliverables before payment.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewEnabled(!previewEnabled)}
+                        className={cn(
+                          "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
+                          previewEnabled ? "bg-primary" : "bg-muted"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-background shadow ring-0 transition duration-200 ease-in-out",
+                            previewEnabled ? "translate-x-5" : "translate-x-0"
+                          )}
+                        />
+                      </button>
+                    </div>
+                  </div>
+
                   {/* File Upload Box */}
                   <div className="space-y-3">
                     <Label className="text-xs font-medium">Attach Deliverable Files</Label>
@@ -872,4 +921,158 @@ function ReviewRow({ label, value }: { label: string; value: string }) {
       <span className="text-sm font-medium">{value || '—'}</span>
     </div>
   );
+}
+
+const loadPdfLib = () => {
+  return new Promise((resolve, reject) => {
+    if ((window as any).PDFLib) return resolve((window as any).PDFLib);
+    const script = document.createElement('script');
+    script.src = '/lib/pdf-lib.min.js';
+    script.onload = () => resolve((window as any).PDFLib);
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+};
+
+async function generateClientPreview(file: File): Promise<Blob | null> {
+  const fileType = file.type || '';
+  const ext = file.name.split('.').pop()?.toLowerCase() || '';
+  const isImage = fileType.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp'].includes(ext);
+  const isPdf = fileType === 'application/pdf' || ext === 'pdf';
+
+  if (isImage) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const maxDim = 1000;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > maxDim) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            }
+          } else {
+            if (height > maxDim) {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(null);
+            return;
+          }
+
+          ctx.drawImage(img, 0, 0, width, height);
+
+          ctx.save();
+
+          // Calculate font size dynamically based on dimensions (responsive)
+          const fontSize = Math.max(
+            32,
+            Math.round(Math.min(width, height) * 0.045)
+          );
+
+          ctx.strokeStyle = 'rgba(70, 70, 70, 0.35)'; // Hollow dark gray outline at 35% opacity
+          ctx.lineWidth = 2;
+          ctx.font = `bold ${fontSize}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+
+          const text = 'DELT PREVIEW';
+          const textWidth = ctx.measureText(text).width;
+          const stepX = textWidth + 35; // Compact horizontal gap (20-50px)
+          const stepY = fontSize + 45;   // Compact vertical gap (30-60px)
+
+          // Rotate by -30 degrees
+          ctx.rotate((-30 * Math.PI) / 180);
+
+          // Render staggered tiled grid of hollow watermarks
+          for (let y = -height * 2; y < height * 2.5; y += stepY) {
+            const xOffset = (Math.round(y / stepY) % 2 === 0) ? 0 : stepX / 2;
+            for (let x = -width * 2 - xOffset; x < width * 2.5; x += stepX) {
+              ctx.strokeText(text, x + xOffset, y);
+            }
+          }
+          ctx.restore();
+
+          canvas.toBlob((blob) => {
+            resolve(blob);
+          }, 'image/jpeg', 0.6);
+        };
+        img.onerror = () => resolve(null);
+        img.src = event.target?.result as string;
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  if (isPdf) {
+    try {
+      const PDFLib = (await loadPdfLib()) as any;
+      if (!PDFLib) return null;
+
+      const fileBytes = new Uint8Array(await file.arrayBuffer());
+      const pdfDoc = await PDFLib.PDFDocument.load(fileBytes);
+      const font = await pdfDoc.embedFont(PDFLib.StandardFonts.HelveticaBold);
+      const pages = pdfDoc.getPages();
+      const pagesToKeep = pages.slice(0, 5);
+
+      const previewDoc = await PDFLib.PDFDocument.create();
+      const copiedPages = await previewDoc.copyPages(pdfDoc, pagesToKeep.map((_: any, i: number) => i));
+
+      for (const page of copiedPages) {
+        previewDoc.addPage(page);
+        const { width, height } = page.getSize();
+
+        // Staggered grid watermark on PDF page with outline/stroke configuration
+        const text = 'DELT PREVIEW';
+        const fontSize = Math.max(28, Math.round(Math.min(width, height) * 0.045));
+        const stepX = (fontSize * 8) + 35; // approximate width of 'DELT PREVIEW' + horizontal gap
+        const stepY = fontSize + 45;       // vertical gap
+        const rotationAngle = 30; // 30 degrees rotation
+
+        page.pushOperators(
+          PDFLib.pushGraphicsState(),
+          PDFLib.setStrokingColor(PDFLib.rgb(0.27, 0.27, 0.27)), // rgb(70,70,70) -> 70/255 = 0.27
+          PDFLib.setLineWidth(2),
+          PDFLib.setTextRenderingMode(PDFLib.TextRenderingMode.Outline)
+        );
+
+        for (let y = -100; y < height + 200; y += stepY) {
+          const xOffset = (Math.round(y / stepY) % 2 === 0) ? 0 : stepX / 2;
+          for (let x = -100 - xOffset; x < width + 200; x += stepX) {
+            page.drawText(text, {
+              x: x + xOffset,
+              y: y,
+              size: fontSize,
+              font: font,
+              opacity: 0.35, // 35% opacity
+              rotate: PDFLib.degrees(rotationAngle),
+            });
+          }
+        }
+
+        page.pushOperators(PDFLib.popGraphicsState());
+      }
+
+      const previewBytes = await previewDoc.save();
+      return new Blob([previewBytes], { type: 'application/pdf' });
+    } catch (err) {
+      console.error('Error generating PDF preview client-side:', err);
+      return null;
+    }
+  }
+
+  return null;
 }

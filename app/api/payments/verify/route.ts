@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { verifyRazorpaySignature } from '@/lib/razorpay';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { hasRazorpayConfig } from '@/lib/env';
+import { sendPaymentConfirmationEmail } from '@/lib/email';
 
 export async function POST(request: Request) {
   try {
@@ -126,6 +127,48 @@ export async function POST(request: Request) {
       deal_title: deal.title,
       read: false,
     });
+
+    // 8. Transactional Emails (Client receipt & Creator notification)
+    try {
+      const { data: creatorProfile } = await supabase
+        .from('profiles')
+        .select('email, display_name')
+        .eq('id', deal.creator_id)
+        .maybeSingle();
+
+      const creatorDisplayName = creatorProfile?.display_name || 'Creator';
+      const canonicalDealUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/deal/${deal.token}`;
+
+      // Email to Client
+      await sendPaymentConfirmationEmail({
+        recipientName: deal.client_name,
+        recipientEmail: deal.client_email,
+        creatorName: creatorDisplayName,
+        dealTitle: deal.title,
+        amount: Number(deal.price),
+        currency: deal.currency || 'INR',
+        transactionId: txId,
+        isCreator: false,
+        dealUrl: canonicalDealUrl,
+      });
+
+      // Email to Creator
+      if (creatorProfile?.email) {
+        await sendPaymentConfirmationEmail({
+          recipientName: creatorDisplayName,
+          recipientEmail: creatorProfile.email,
+          creatorName: creatorDisplayName,
+          dealTitle: deal.title,
+          amount: Number(deal.price),
+          currency: deal.currency || 'INR',
+          transactionId: txId,
+          isCreator: true,
+          dealUrl: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/deals/${deal.id}`,
+        });
+      }
+    } catch (emailErr) {
+      console.error('Error dispatching payment confirmation emails:', emailErr);
+    }
 
     return NextResponse.json({
       success: true,

@@ -23,9 +23,46 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Deal not found' }, { status: 404 });
     }
 
+    // Concurrency Check: Check for active pending proposals for this deal
+    const { data: existingPending, error: existError } = await admin
+      .from('price_proposals')
+      .select('id, state, direction')
+      .eq('deal_id', deal.id)
+      .eq('state', 'pending');
+
+    if (existError) {
+      return NextResponse.json({ error: 'Database verification failed' }, { status: 500 });
+    }
+
+    if (existingPending && existingPending.length > 0) {
+      if (parentProposalId) {
+        const matchesParent = existingPending.some((p) => p.id === parentProposalId);
+        if (!matchesParent) {
+          return NextResponse.json({ error: 'The proposal you are countering is no longer pending.' }, { status: 400 });
+        }
+      } else {
+        return NextResponse.json({ error: 'There is already an active price proposal. Please respond or counter it.' }, { status: 400 });
+      }
+    } else if (parentProposalId) {
+      return NextResponse.json({ error: 'The proposal you are countering has already been resolved.' }, { status: 400 });
+    }
+
     const now = new Date().toISOString();
     const priceNum = Number(proposedPrice);
     const direction = proposedByRole === 'creator' ? 'creator_to_client' : 'client_to_creator';
+
+    let prevPrice = deal.price;
+    if (parentProposalId) {
+      const { data: parentProposal } = await admin
+        .from('price_proposals')
+        .select('proposed_price')
+        .eq('id', parentProposalId)
+        .maybeSingle();
+
+      if (parentProposal) {
+        prevPrice = Number(parentProposal.proposed_price);
+      }
+    }
 
     // 1. Create immutable proposal record
     const { data: proposal, error: propError } = await admin
@@ -33,7 +70,7 @@ export async function POST(request: Request) {
       .insert({
         deal_id: deal.id,
         direction,
-        previous_price: deal.price,
+        previous_price: prevPrice,
         proposed_price: priceNum,
         reason: reason?.trim() || null,
         state: 'pending',
@@ -47,6 +84,17 @@ export async function POST(request: Request) {
 
     if (propError || !proposal) {
       return NextResponse.json({ error: propError?.message || 'Failed to submit proposal' }, { status: 500 });
+    }
+
+    // 1.5 Update parent proposal state to countered
+    if (parentProposalId) {
+      await admin
+        .from('price_proposals')
+        .update({
+          state: 'countered',
+          resolved_at: now,
+        })
+        .eq('id', parentProposalId);
     }
 
     // 2. Update Deal status to negotiating
