@@ -91,7 +91,7 @@ async function sendRawEmail(params: {
   console.log(`from: ${fromAddress}`);
   console.log(`provider: Resend`);
 
-  if (to.endsWith('@example.com') && process.env.NODE_ENV !== 'production') {
+  if (to.endsWith('@example.com')) {
     console.log(`[DELT EMAIL SIMULATION] Simulated delivery to ${to}`);
     return {
       success: true,
