@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { verifyDealOtp } from '@/lib/otp';
 
+let verifyRequestCount = 0;
+
 export async function POST(
   request: Request,
   { params }: { params: { token: string } }
@@ -22,7 +24,22 @@ export async function POST(
       return NextResponse.json({ error: 'Verification code is required.' }, { status: 400 });
     }
 
-    const result = await verifyDealOtp(token, email, otp);
+    verifyRequestCount++;
+    const result = (await verifyDealOtp(token, email, otp)) as any;
+
+    console.log(`[OTP_VERIFY]
+traceId=${result.otpTraceId || 'unknown'}
+dealId=${result.dealId || 'unknown'}
+normalizedEmail=${email.trim().toLowerCase()}
+lookupStarted=${result.lookupStarted || 'unknown'}
+matchingRowFound=${result.matchingRowFound || false}
+matchingRowId=${result.matchingRowId || 'none'}
+matchingRowCreatedAt=${result.matchingRowCreatedAt || 'none'}
+matchingRowExpiresAt=${result.matchingRowExpiresAt || 'none'}
+matchingRowVerified=${result.matchingRowVerified || false}
+matchingRowAttempts=${result.matchingRowAttempts || 0}
+hashComparisonResult=${result.hashComparisonResult || false}
+verificationResult=${result.verificationResult || 'unknown'}`);
 
     if (!result.valid) {
       return NextResponse.json(

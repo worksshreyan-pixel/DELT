@@ -47,6 +47,10 @@ export interface RequestOtpResult {
   cooldownSeconds?: number;
   error?: string;
   errType?: 'DATABASE_INSERT_ERROR' | 'EMAIL_SEND_ERROR' | 'OTP_GENERATION_ERROR' | 'DEAL_NOT_FOUND' | 'INVALID_EMAIL' | 'RATE_LIMITED';
+  dealId?: string;
+  otpTraceId?: string;
+  databaseRowCreated?: boolean;
+  databaseRowId?: string;
 }
 
 export interface VerifyOtpResult {
@@ -54,6 +58,17 @@ export interface VerifyOtpResult {
   clientSessionToken?: string;
   deal?: any;
   error?: string;
+  dealId?: string;
+  otpTraceId?: string;
+  lookupStarted?: string;
+  matchingRowFound?: boolean;
+  matchingRowId?: string;
+  matchingRowCreatedAt?: string;
+  matchingRowExpiresAt?: string;
+  matchingRowVerified?: boolean;
+  matchingRowAttempts?: number;
+  hashComparisonResult?: boolean;
+  verificationResult?: string;
 }
 
 // In-memory store used exclusively for Creator Signup OTP
@@ -275,9 +290,10 @@ export async function verifySignupOtp(params: {
 // ------------------------------------------------------------------------------
 export async function requestDealOtp(
   dealToken: string,
-  rawEmail: string
+  rawEmail: string,
+  traceId?: string
 ): Promise<RequestOtpResult> {
-  const otpTraceId = crypto.randomUUID();
+  const otpTraceId = traceId || `OTP-REQUEST-${crypto.randomUUID().slice(0, 8)}`;
   const normalizedEmail = normalizeEmail(rawEmail);
 
   console.log(`[OTP_REQUEST_START]`, JSON.stringify({
@@ -294,7 +310,9 @@ export async function requestDealOtp(
       emailSent: false,
       simulated: false,
       error: 'Please enter a valid email address.',
-      errType: 'INVALID_EMAIL'
+      errType: 'INVALID_EMAIL',
+      otpTraceId,
+      databaseRowCreated: false
     };
   }
 
@@ -314,7 +332,9 @@ export async function requestDealOtp(
       emailSent: false,
       simulated: false,
       error: 'Deal not found or invalid link.',
-      errType: 'DEAL_NOT_FOUND'
+      errType: 'DEAL_NOT_FOUND',
+      otpTraceId,
+      databaseRowCreated: false
     };
   }
 
@@ -334,7 +354,10 @@ export async function requestDealOtp(
       emailSent: false,
       simulated: false,
       error: 'This email address is not authorized for this private Deal workspace.',
-      errType: 'INVALID_EMAIL'
+      errType: 'INVALID_EMAIL',
+      dealId: deal.id,
+      otpTraceId,
+      databaseRowCreated: false
     };
   }
 
@@ -359,7 +382,10 @@ export async function requestDealOtp(
         simulated: false,
         cooldownSeconds: remainingCooldown,
         error: `Please wait ${remainingCooldown} seconds before requesting a new code.`,
-        errType: 'RATE_LIMITED'
+        errType: 'RATE_LIMITED',
+        dealId: deal.id,
+        otpTraceId,
+        databaseRowCreated: false
       };
     }
   }
@@ -408,7 +434,10 @@ export async function requestDealOtp(
       emailSent: false,
       simulated: false,
       error: 'Failed to record verification code in database. Please try again.',
-      errType: 'DATABASE_INSERT_ERROR'
+      errType: 'DATABASE_INSERT_ERROR',
+      dealId: deal.id,
+      otpTraceId,
+      databaseRowCreated: false
     };
   }
 
@@ -449,7 +478,10 @@ export async function requestDealOtp(
       emailSent: false,
       simulated: Boolean(emailRes.simulated),
       error: emailRes.error || 'Failed to deliver verification email through Resend.',
-      errType: 'EMAIL_SEND_ERROR'
+      errType: 'EMAIL_SEND_ERROR',
+      dealId: deal.id,
+      otpTraceId,
+      databaseRowCreated: false
     };
   }
 
@@ -466,6 +498,10 @@ export async function requestDealOtp(
     emailSent: true,
     simulated: Boolean(emailRes.simulated),
     cooldownSeconds: COOLDOWN_SECONDS,
+    dealId: deal.id,
+    otpTraceId,
+    databaseRowCreated: true,
+    databaseRowId: insertedOtp.id
   };
 }
 
@@ -475,22 +511,30 @@ export async function requestDealOtp(
 export async function verifyDealOtp(
   dealToken: string,
   rawEmail: string,
-  inputOtp: string
+  inputOtp: string,
+  traceId?: string
 ): Promise<VerifyOtpResult> {
-  const otpTraceId = crypto.randomUUID();
+  const otpTraceId = traceId || `OTP-VERIFY-${crypto.randomUUID().slice(0, 8)}`;
   const normalizedEmail = normalizeEmail(rawEmail);
   const trimmedOtp = (inputOtp || '').trim();
+  const lookupStarted = new Date().toISOString();
 
   console.log(`[OTP_VERIFY_START]`, JSON.stringify({
     otpTraceId,
     dealToken,
     normalizedEmail,
     inputOtpLength: trimmedOtp.length,
-    timestamp: new Date().toISOString()
+    timestamp: lookupStarted
   }));
 
   if (!trimmedOtp || trimmedOtp.length !== 6 || !/^\d{6}$/.test(trimmedOtp)) {
-    return { valid: false, error: 'Please enter a valid 6-digit verification code.' };
+    return {
+      valid: false,
+      error: 'Please enter a valid 6-digit verification code.',
+      otpTraceId,
+      lookupStarted,
+      matchingRowFound: false
+    };
   }
 
   const admin = createAdminClient();
@@ -504,7 +548,13 @@ export async function verifyDealOtp(
 
   if (dealError || !deal) {
     console.error(`[OTP_VERIFY_ERROR] Deal not found for token: ${dealToken}`, dealError);
-    return { valid: false, error: 'Deal not found.' };
+    return {
+      valid: false,
+      error: 'Deal not found.',
+      otpTraceId,
+      lookupStarted,
+      matchingRowFound: false
+    };
   }
 
   const parsed = parseDescription(deal.description);
@@ -538,7 +588,14 @@ export async function verifyDealOtp(
       error: queryError,
       timestamp: new Date().toISOString()
     }));
-    return { valid: false, error: 'Unable to verify code due to a database error. Please try again.' };
+    return {
+      valid: false,
+      error: 'Unable to verify code due to a database error. Please try again.',
+      dealId: deal.id,
+      otpTraceId,
+      lookupStarted,
+      matchingRowFound: false
+    };
   }
 
   const activeOtp = activeOtps && activeOtps.length > 0 ? activeOtps[0] : null;
@@ -559,20 +616,36 @@ export async function verifyDealOtp(
   if (!activeOtp) {
     const { data: anyOtps } = await admin
       .from('deal_otps')
-      .select('id, verified, created_at, expires_at')
+      .select('id, verified, created_at, expires_at, attempts')
       .eq('deal_id', deal.id)
       .eq('email', normalizedEmail)
       .order('created_at', { ascending: false })
       .limit(1);
 
-    if (anyOtps && anyOtps.length > 0 && anyOtps[0].verified) {
+    const firstAnyOtp = anyOtps && anyOtps.length > 0 ? anyOtps[0] : null;
+
+    if (firstAnyOtp && firstAnyOtp.verified) {
       console.warn(`[OTP_ALREADY_VERIFIED]`, JSON.stringify({
         otpTraceId,
         dealId: deal.id,
         email: maskEmail(normalizedEmail),
         timestamp: new Date().toISOString()
       }));
-      return { valid: false, error: 'This code has already been used. Please request a new code.' };
+      return {
+        valid: false,
+        error: 'This code has already been used. Please request a new code.',
+        dealId: deal.id,
+        otpTraceId,
+        lookupStarted,
+        matchingRowFound: true,
+        matchingRowId: firstAnyOtp.id,
+        matchingRowCreatedAt: firstAnyOtp.created_at,
+        matchingRowExpiresAt: firstAnyOtp.expires_at,
+        matchingRowVerified: firstAnyOtp.verified,
+        matchingRowAttempts: firstAnyOtp.attempts,
+        hashComparisonResult: false,
+        verificationResult: 'ALREADY_VERIFIED'
+      };
     }
 
     console.warn(`[OTP_NO_ROW_FOUND]`, JSON.stringify({
@@ -581,7 +654,21 @@ export async function verifyDealOtp(
       email: maskEmail(normalizedEmail),
       timestamp: new Date().toISOString()
     }));
-    return { valid: false, error: 'No active verification code found. Please request a new code.' };
+    return {
+      valid: false,
+      error: 'No active verification code found. Please request a new code.',
+      dealId: deal.id,
+      otpTraceId,
+      lookupStarted,
+      matchingRowFound: firstAnyOtp ? true : false,
+      matchingRowId: firstAnyOtp?.id,
+      matchingRowCreatedAt: firstAnyOtp?.created_at,
+      matchingRowExpiresAt: firstAnyOtp?.expires_at,
+      matchingRowVerified: firstAnyOtp?.verified,
+      matchingRowAttempts: firstAnyOtp?.attempts,
+      hashComparisonResult: false,
+      verificationResult: 'NO_ROW_FOUND'
+    };
   }
 
   const now = Date.now();
@@ -597,7 +684,21 @@ export async function verifyDealOtp(
       timestamp: new Date().toISOString()
     }));
     await admin.from('deal_otps').delete().eq('id', activeOtp.id);
-    return { valid: false, error: 'This code has expired. Request a new code.' };
+    return {
+      valid: false,
+      error: 'This code has expired. Request a new code.',
+      dealId: deal.id,
+      otpTraceId,
+      lookupStarted,
+      matchingRowFound: true,
+      matchingRowId: activeOtp.id,
+      matchingRowCreatedAt: activeOtp.created_at,
+      matchingRowExpiresAt: activeOtp.expires_at,
+      matchingRowVerified: activeOtp.verified,
+      matchingRowAttempts: activeOtp.attempts,
+      hashComparisonResult: false,
+      verificationResult: 'EXPIRED'
+    };
   }
 
   // 4. Max attempts check
@@ -610,7 +711,21 @@ export async function verifyDealOtp(
       timestamp: new Date().toISOString()
     }));
     await admin.from('deal_otps').delete().eq('id', activeOtp.id);
-    return { valid: false, error: 'Too many verification attempts. Please request a new code later.' };
+    return {
+      valid: false,
+      error: 'Too many verification attempts. Please request a new code later.',
+      dealId: deal.id,
+      otpTraceId,
+      lookupStarted,
+      matchingRowFound: true,
+      matchingRowId: activeOtp.id,
+      matchingRowCreatedAt: activeOtp.created_at,
+      matchingRowExpiresAt: activeOtp.expires_at,
+      matchingRowVerified: activeOtp.verified,
+      matchingRowAttempts: activeOtp.attempts,
+      hashComparisonResult: false,
+      verificationResult: 'MAX_ATTEMPTS_EXCEEDED'
+    };
   }
 
   // 5. Compare hash with timing-safe comparison
@@ -639,10 +754,38 @@ export async function verifyDealOtp(
 
     if (newAttempts >= MAX_ATTEMPTS) {
       await admin.from('deal_otps').delete().eq('id', activeOtp.id);
-      return { valid: false, error: 'Too many verification attempts. Please request a new code later.' };
+      return {
+        valid: false,
+        error: 'Too many verification attempts. Please request a new code later.',
+        dealId: deal.id,
+        otpTraceId,
+        lookupStarted,
+        matchingRowFound: true,
+        matchingRowId: activeOtp.id,
+        matchingRowCreatedAt: activeOtp.created_at,
+        matchingRowExpiresAt: activeOtp.expires_at,
+        matchingRowVerified: activeOtp.verified,
+        matchingRowAttempts: newAttempts,
+        hashComparisonResult: false,
+        verificationResult: 'MAX_ATTEMPTS_EXCEEDED'
+      };
     }
 
-    return { valid: false, error: 'Incorrect verification code. Please try again.' };
+    return {
+      valid: false,
+      error: 'Incorrect verification code. Please try again.',
+      dealId: deal.id,
+      otpTraceId,
+      lookupStarted,
+      matchingRowFound: true,
+      matchingRowId: activeOtp.id,
+      matchingRowCreatedAt: activeOtp.created_at,
+      matchingRowExpiresAt: activeOtp.expires_at,
+      matchingRowVerified: activeOtp.verified,
+      matchingRowAttempts: newAttempts,
+      hashComparisonResult: false,
+      verificationResult: 'HASH_MISMATCH'
+    };
   }
 
   // 6. Mark OTP verified (used) immediately
@@ -692,6 +835,17 @@ export async function verifyDealOtp(
     valid: true,
     clientSessionToken,
     deal: resolvedDeal,
+    dealId: deal.id,
+    otpTraceId,
+    lookupStarted,
+    matchingRowFound: true,
+    matchingRowId: activeOtp.id,
+    matchingRowCreatedAt: activeOtp.created_at,
+    matchingRowExpiresAt: activeOtp.expires_at,
+    matchingRowVerified: activeOtp.verified,
+    matchingRowAttempts: activeOtp.attempts,
+    hashComparisonResult: true,
+    verificationResult: 'SUCCESS'
   };
 }
 

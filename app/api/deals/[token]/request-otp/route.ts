@@ -18,7 +18,18 @@ export async function POST(
       return NextResponse.json({ error: 'Email address is required.' }, { status: 400 });
     }
 
-    const result = await requestDealOtp(token, email);
+    const result = (await requestDealOtp(token, email)) as any;
+    const requestSource = request.headers.get('user-agent') || 'unknown';
+
+    console.log(`[OTP_REQUEST]
+traceId=${result.otpTraceId || 'unknown'}
+timestamp=${new Date().toISOString()}
+dealId=${result.dealId || 'unknown'}
+normalizedEmail=${email.trim().toLowerCase()}
+requestSource=${requestSource}
+success=${result.success}
+databaseRowCreated=${result.databaseRowCreated || false}
+databaseRowId=${result.databaseRowId || 'none'}`);
 
     if (!result.success) {
       const status = result.errType === 'DATABASE_INSERT_ERROR' ? 500 : 400;

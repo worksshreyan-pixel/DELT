@@ -30,14 +30,7 @@ export default function DealDetailPage() {
     const storeDeal = store.deals.find((d) => d.id === dealId);
     if (storeDeal) {
       setDeal(storeDeal);
-      setMessages(store.messages[dealId] || []);
-      setProposals(store.proposals[dealId] || []);
-      setDeliverables(store.deliverables[dealId] || []);
-      setFileVersions(store.fileVersions[dealId] || []);
-      setEvents(store.events[dealId] || []);
       setPayments(store.payments[dealId] || []);
-      setLoading(false);
-      return;
     }
 
     if (!hasSupabasePublicConfig()) {
@@ -48,42 +41,50 @@ export default function DealDetailPage() {
     async function fetchDealData() {
       const supabase = createClient();
       try {
-        const { data: dbDeal } = await supabase
-          .from('deals')
-          .select('*')
-          .eq('id', dealId)
-          .maybeSingle();
-
-        if (dbDeal) {
-          const mappedDeal: Deal = {
-            id: dbDeal.id,
-            token: dbDeal.token,
-            creatorId: dbDeal.creator_id,
-            clientId: dbDeal.client_id || '',
-            title: dbDeal.title,
-            description: parseDescription(dbDeal.description).description,
-            scope: Array.isArray(dbDeal.scope) ? dbDeal.scope : [],
-            price: Number(dbDeal.price),
-            currency: dbDeal.currency || 'INR',
-            status: dbDeal.status || 'in_progress',
-            deadline: dbDeal.deadline,
-            progress: Number(dbDeal.progress || 0),
-            paymentStatus: dbDeal.payment_status || 'pending',
-            lastActivityAt: dbDeal.last_activity_at || dbDeal.created_at,
-            createdAt: dbDeal.created_at,
-            updatedAt: dbDeal.updated_at,
-            previewEnabled: parseDescription(dbDeal.description).previewEnabled,
-          };
-          setDeal(mappedDeal);
-
-          // Fetch messages
-          const { data: dbMsgs } = await supabase
-            .from('deal_messages')
+        let currentDeal = storeDeal;
+        if (!currentDeal) {
+          const { data: dbDeal } = await supabase
+            .from('deals')
             .select('*')
-            .eq('deal_id', dealId)
-            .order('created_at', { ascending: true });
-          if (dbMsgs) {
-            setMessages(dbMsgs.map((m: any) => ({
+            .eq('id', dealId)
+            .maybeSingle();
+
+          if (dbDeal) {
+            currentDeal = {
+              id: dbDeal.id,
+              token: dbDeal.token,
+              creatorId: dbDeal.creator_id,
+              clientId: dbDeal.client_id || '',
+              title: dbDeal.title,
+              description: parseDescription(dbDeal.description).description,
+              scope: Array.isArray(dbDeal.scope) ? dbDeal.scope : [],
+              price: Number(dbDeal.price),
+              currency: dbDeal.currency || 'INR',
+              status: dbDeal.status || 'in_progress',
+              deadline: dbDeal.deadline,
+              progress: Number(dbDeal.progress || 0),
+              paymentStatus: dbDeal.payment_status || 'pending',
+              lastActivityAt: dbDeal.last_activity_at || dbDeal.created_at,
+              createdAt: dbDeal.created_at,
+              updatedAt: dbDeal.updated_at,
+              previewEnabled: parseDescription(dbDeal.description).previewEnabled,
+            };
+            setDeal(currentDeal);
+          }
+        }
+
+        if (currentDeal) {
+          // Fetch child data in parallel
+          const [dbMsgs, dbProps, dbDelivs, dbVersions, dbEvents] = await Promise.all([
+            supabase.from('deal_messages').select('*').eq('deal_id', dealId).order('created_at', { ascending: true }),
+            supabase.from('price_proposals').select('*').eq('deal_id', dealId).order('created_at', { ascending: true }),
+            supabase.from('deliverables').select('*').eq('deal_id', dealId),
+            supabase.from('file_versions').select('*').eq('deal_id', dealId).order('version', { ascending: true }),
+            supabase.from('deal_events').select('*').eq('deal_id', dealId).order('created_at', { ascending: false })
+          ]);
+
+          if (dbMsgs.data) {
+            setMessages(dbMsgs.data.map((m: any) => ({
               id: m.id,
               dealId: m.deal_id,
               senderId: m.sender_id,
@@ -96,14 +97,8 @@ export default function DealDetailPage() {
             })));
           }
 
-          // Fetch proposals
-          const { data: dbProps } = await supabase
-            .from('price_proposals')
-            .select('*')
-            .eq('deal_id', dealId)
-            .order('created_at', { ascending: true });
-          if (dbProps) {
-            setProposals(dbProps.map((p: any) => ({
+          if (dbProps.data) {
+            setProposals(dbProps.data.map((p: any) => ({
               id: p.id,
               dealId: p.deal_id,
               direction: p.direction,
@@ -118,13 +113,8 @@ export default function DealDetailPage() {
             })));
           }
 
-          // Fetch deliverables
-          const { data: dbDelivs } = await supabase
-            .from('deliverables')
-            .select('*')
-            .eq('deal_id', dealId);
-          if (dbDelivs) {
-            setDeliverables(dbDelivs.map((d: any) => ({
+          if (dbDelivs.data) {
+            setDeliverables(dbDelivs.data.map((d: any) => ({
               id: d.id,
               dealId: d.deal_id,
               name: d.name,
@@ -134,14 +124,8 @@ export default function DealDetailPage() {
             })));
           }
 
-          // Fetch file versions
-          const { data: dbVersions } = await supabase
-            .from('file_versions')
-            .select('*')
-            .eq('deal_id', dealId)
-            .order('version', { ascending: true });
-          if (dbVersions) {
-            setFileVersions(dbVersions.map((v: any) => ({
+          if (dbVersions.data) {
+            setFileVersions(dbVersions.data.map((v: any) => ({
               id: v.id,
               deliverableId: v.deliverable_id,
               dealId: v.deal_id || dealId,
@@ -156,14 +140,8 @@ export default function DealDetailPage() {
             })));
           }
 
-          // Fetch events
-          const { data: dbEvents } = await supabase
-            .from('deal_events')
-            .select('*')
-            .eq('deal_id', dealId)
-            .order('created_at', { ascending: false });
-          if (dbEvents) {
-            setEvents(dbEvents.map((e: any) => ({
+          if (dbEvents.data) {
+            setEvents(dbEvents.data.map((e: any) => ({
               id: e.id,
               dealId: e.deal_id,
               type: e.type,
@@ -182,7 +160,7 @@ export default function DealDetailPage() {
     }
 
     fetchDealData();
-  }, [dealId]);
+  }, [dealId, store.deals, store.payments]);
 
   useEffect(() => {
     if (!dealId || !hasSupabasePublicConfig()) return;

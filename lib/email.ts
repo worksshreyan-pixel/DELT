@@ -91,6 +91,16 @@ async function sendRawEmail(params: {
   console.log(`from: ${fromAddress}`);
   console.log(`provider: Resend`);
 
+  if (to.endsWith('@example.com') && process.env.NODE_ENV !== 'production') {
+    console.log(`[DELT EMAIL SIMULATION] Simulated delivery to ${to}`);
+    return {
+      success: true,
+      delivered: true,
+      simulated: true,
+      messageId: `sim-${crypto.randomUUID()}`
+    };
+  }
+
   if (!hasEmailConfig()) {
     const msg = 'RESEND_API_KEY is missing or unconfigured in .env.local';
     console.error(`[DELT EMAIL ERROR] ${msg}`);

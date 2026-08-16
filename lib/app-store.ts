@@ -302,17 +302,43 @@ export function setStoreUser(user: { id: string; email: string; displayName: str
 /**
  * Asynchronously synchronizes store state with real Supabase records.
  */
-export async function syncStoreFromSupabase(userId: string) {
+let isSyncing = false;
+let lastSyncedAt = 0;
+const SYNC_COOLDOWN_MS = 5000;
+
+export async function syncStoreFromSupabase(userId: string, force = false) {
   if (!hasSupabasePublicConfig() || !userId) return;
 
+  const now = Date.now();
+  if (!force && (isSyncing || (now - lastSyncedAt < SYNC_COOLDOWN_MS))) {
+    return;
+  }
+
+  isSyncing = true;
   const supabase = createClient();
   try {
-    // 1. Fetch user deals
-    const { data: dealsData } = await supabase
-      .from('deals')
-      .select('*')
-      .eq('creator_id', userId)
-      .order('created_at', { ascending: false });
+    const [
+      dealsRes,
+      clientsRes,
+      storageRes,
+      creditsRes,
+      notifsRes,
+      txRes
+    ] = await Promise.all([
+      supabase.from('deals').select('*').eq('creator_id', userId).order('created_at', { ascending: false }),
+      supabase.from('clients').select('*').eq('creator_id', userId).order('created_at', { ascending: false }),
+      supabase.from('storage_usage').select('*').eq('user_id', userId).maybeSingle(),
+      supabase.from('deal_credits').select('*').eq('user_id', userId).maybeSingle(),
+      supabase.from('notifications').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+      supabase.from('transactions').select('*').eq('creator_id', userId).order('date', { ascending: false })
+    ]);
+
+    const dealsData = dealsRes.data;
+    const clientsData = clientsRes.data;
+    const storageData = storageRes.data;
+    const creditsData = creditsRes.data;
+    const notifsData = notifsRes.data;
+    const txData = txRes.data;
 
     if (dealsData) {
       currentStoreState.deals = dealsData.map((d: any) => ({
@@ -338,13 +364,6 @@ export async function syncStoreFromSupabase(userId: string) {
       }));
     }
 
-    // 2. Fetch clients
-    const { data: clientsData } = await supabase
-      .from('clients')
-      .select('*')
-      .eq('creator_id', userId)
-      .order('created_at', { ascending: false });
-
     if (clientsData) {
       currentStoreState.clients = clientsData.map((c: any) => ({
         id: c.id,
@@ -361,13 +380,6 @@ export async function syncStoreFromSupabase(userId: string) {
       }));
     }
 
-    // 3. Fetch storage usage
-    const { data: storageData } = await supabase
-      .from('storage_usage')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle();
-
     if (storageData) {
       currentStoreState.storage = {
         totalBytes: Number(storageData.total_bytes || 0),
@@ -379,13 +391,6 @@ export async function syncStoreFromSupabase(userId: string) {
         },
       };
     }
-
-    // 4. Fetch credits
-    const { data: creditsData } = await supabase
-      .from('deal_credits')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle();
 
     if (creditsData) {
       currentStoreState.credits = {
@@ -403,13 +408,6 @@ export async function syncStoreFromSupabase(userId: string) {
       };
     }
 
-    // 5. Fetch notifications
-    const { data: notifsData } = await supabase
-      .from('notifications')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-
     if (notifsData) {
       currentStoreState.notifications = notifsData.map((n: any) => ({
         id: n.id,
@@ -422,13 +420,6 @@ export async function syncStoreFromSupabase(userId: string) {
         createdAt: n.created_at,
       }));
     }
-
-    // 6. Fetch transactions
-    const { data: txData } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('creator_id', userId)
-      .order('date', { ascending: false });
 
     if (txData) {
       currentStoreState.transactions = txData.map((t: any) => ({
@@ -451,6 +442,9 @@ export async function syncStoreFromSupabase(userId: string) {
     saveStore(currentStoreState, userId);
   } catch (err) {
     console.error('Error syncing store from Supabase', err);
+  } finally {
+    isSyncing = false;
+    lastSyncedAt = Date.now();
   }
 }
 

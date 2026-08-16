@@ -147,20 +147,22 @@ export default function ClientDealPage() {
   // Request 6-Digit OTP via Resend
   async function handleSendOtp() {
     if (isSendingRef.current || isSending || cooldown > 0) return;
+    isSendingRef.current = true;
 
     const targetEmail = (email || '').trim().toLowerCase();
     if (!targetEmail) {
       setError('Please enter your email address.');
+      isSendingRef.current = false;
       return;
     }
 
     // Client email match check against private workspace meta
     if (dealMeta?.clientEmail && targetEmail !== dealMeta.clientEmail.toLowerCase()) {
       setError('This email address is not authorized for this private Deal workspace.');
+      isSendingRef.current = false;
       return;
     }
 
-    isSendingRef.current = true;
     setIsSending(true);
     setError('');
     setStatusMessage('');
@@ -198,20 +200,22 @@ export default function ClientDealPage() {
   // Verify 6-Digit OTP submitted by client
   async function handleVerifyOtp(codeToVerify?: string) {
     if (isVerifyingRef.current || verifying) return;
+    isVerifyingRef.current = true;
 
     const code = (codeToVerify || otp.join('')).trim();
     if (code.length !== 6) {
       setError('Please enter all 6 digits of the verification code.');
+      isVerifyingRef.current = false;
       return;
     }
 
     const targetEmail = (email || dealMeta?.clientEmail || '').trim().toLowerCase();
     if (!targetEmail) {
       setError('Email address is required.');
+      isVerifyingRef.current = false;
       return;
     }
 
-    isVerifyingRef.current = true;
     setVerifying(true);
     setError('');
 
