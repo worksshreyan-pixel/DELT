@@ -1,20 +1,7 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import { Inter, JetBrains_Mono } from 'next/font/google';
-import localFont from 'next/font/local';
+import { JetBrains_Mono } from 'next/font/google';
 import { ThemeProvider } from '@/components/theme-provider';
-
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-  display: 'swap',
-});
-
-const cal = localFont({
-  src: '../public/fonts/CalSans-SemiBold.woff2',
-  variable: '--font-cal',
-  display: 'swap',
-});
 
 const mono = JetBrains_Mono({
   subsets: ['latin'],
@@ -50,7 +37,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${inter.variable} ${cal.variable} ${mono.variable} font-sans antialiased`}
+        className={`${mono.variable} font-sans antialiased`}
       >
         <ThemeProvider
           attribute="class"
