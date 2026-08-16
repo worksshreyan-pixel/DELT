@@ -75,10 +75,16 @@
   * {
     @apply border-border;
   }
+  h1, h2, h3, h4, h5, h6 {
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+  }
   body {
     @apply bg-background text-foreground;
     font-feature-settings: 'cv11', 'ss01';
     font-variation-settings: normal;
+    line-height: 1.5;
+    letter-spacing: normal;
   }
   html {
     -webkit-font-smoothing: antialiased;

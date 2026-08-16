@@ -1,9 +1,9 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import { Manrope, JetBrains_Mono } from 'next/font/google';
+import { Inter, JetBrains_Mono } from 'next/font/google';
 import { ThemeProvider } from '@/components/theme-provider';
 
-const sans = Manrope({
+const sans = Inter({
   subsets: ['latin'],
   variable: '--font-sans',
   weight: ['400', '500', '600'],
