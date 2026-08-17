@@ -167,19 +167,15 @@ export async function generateVideoPreview(dealId: string, fileVersionId: string
         console.log(`[VIDEO_PROCESSOR] Response received. requestId=${requestId} dealId=${dealId} fileId=${fileId} status=${response.status} success=${response.ok}`);
         if (!response.ok) {
           const errText = await response.text();
-          throw new Error(`Processor returned status ${response.status}: ${errText}`);
+          throw new Error(`[VIDEO_PROCESSOR] Render processor returned error status ${response.status}: ${errText}`);
         }
 
         console.log(`[VIDEO_PROCESSOR] Successfully delegated preview generation. requestId=${requestId} dealId=${dealId} fileId=${fileId} processorUrl=${processorUrl} success=true`);
         return;
       } catch (err: any) {
         console.error(`[VIDEO_PROCESSOR] Failed to call Render processor. requestId=${requestId} dealId=${dealId} fileId=${fileId} error=`, err);
-        // Check local FFmpeg availability for fallback
-        const localFfmpegReady = await isFfmpegAvailable();
-        if (!localFfmpegReady) {
-          throw new Error(`Render processor failed and local FFmpeg is unavailable: ${err.message}`);
-        }
-        console.log(`[VIDEO_PROCESSOR] Falling back to local video processing. requestId=${requestId} dealId=${dealId} fileId=${fileId}`);
+        // Do NOT fall back to local FFmpeg in production - propagate error to trigger failed status directly
+        throw err;
       }
     }
 
