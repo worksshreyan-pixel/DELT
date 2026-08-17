@@ -145,17 +145,25 @@ export async function generateVideoPreview(dealId: string, fileVersionId: string
 
     // Check if external video processor URL is configured
     const processorUrl = process.env.VIDEO_PROCESSOR_URL;
+    const secret = process.env.VIDEO_PROCESSOR_SECRET;
+
     if (processorUrl) {
+      if (!secret) {
+        console.error(`[VIDEO_PROCESSOR] Configuration error: VIDEO_PROCESSOR_SECRET is missing. Cannot delegate request securely.`);
+        throw new Error('[VIDEO_PROCESSOR] Configuration error: VIDEO_PROCESSOR_SECRET is missing.');
+      }
+
+      console.log(`[VIDEO_PROCESSOR] configured=true processorUrl=${processorUrl}`);
+
       const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       console.log(`[VIDEO_PROCESSOR] Forwarding request. requestId=${requestId} dealId=${dealId} fileId=${fileId} processorUrl=${processorUrl}`);
-      const secret = process.env.VIDEO_PROCESSOR_SECRET;
 
       try {
         const response = await fetch(`${processorUrl.replace(/\/$/, '')}/process`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(secret ? { 'Authorization': `Bearer ${secret}` } : {})
+            'Authorization': `Bearer ${secret}`
           },
           body: JSON.stringify({
             dealId,
@@ -177,6 +185,12 @@ export async function generateVideoPreview(dealId: string, fileVersionId: string
         // Do NOT fall back to local FFmpeg in production - propagate error to trigger failed status directly
         throw err;
       }
+    } else {
+      if (process.env.NODE_ENV === 'production') {
+        console.error(`[VIDEO_PROCESSOR] Configuration error: VIDEO_PROCESSOR_URL is missing in production.`);
+        throw new Error('[VIDEO_PROCESSOR] Configuration error: VIDEO_PROCESSOR_URL is missing in production.');
+      }
+      console.log(`[VIDEO_PROCESSOR] configured=false. VIDEO_PROCESSOR_URL is not set. Falling back to local FFmpeg.`);
     }
 
     // 3. Verify FFmpeg availability
