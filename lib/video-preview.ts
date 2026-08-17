@@ -143,6 +143,46 @@ export async function generateVideoPreview(dealId: string, fileVersionId: string
       .update({ files: filesWithProcessing })
       .eq('id', fileVersionId);
 
+    // Check if external video processor URL is configured
+    const processorUrl = process.env.VIDEO_PROCESSOR_URL;
+    if (processorUrl) {
+      const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      console.log(`[VIDEO_PROCESSOR] Forwarding request. requestId=${requestId} dealId=${dealId} fileId=${fileId} processorUrl=${processorUrl}`);
+      const secret = process.env.VIDEO_PROCESSOR_SECRET;
+
+      try {
+        const response = await fetch(`${processorUrl.replace(/\/$/, '')}/process`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(secret ? { 'Authorization': `Bearer ${secret}` } : {})
+          },
+          body: JSON.stringify({
+            dealId,
+            fileVersionId,
+            fileId
+          })
+        });
+
+        console.log(`[VIDEO_PROCESSOR] Response received. requestId=${requestId} dealId=${dealId} fileId=${fileId} status=${response.status} success=${response.ok}`);
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`Processor returned status ${response.status}: ${errText}`);
+        }
+
+        console.log(`[VIDEO_PROCESSOR] Successfully delegated preview generation. requestId=${requestId} dealId=${dealId} fileId=${fileId} processorUrl=${processorUrl} success=true`);
+        return;
+      } catch (err: any) {
+        console.error(`[VIDEO_PROCESSOR] Failed to call Render processor. requestId=${requestId} dealId=${dealId} fileId=${fileId} error=`, err);
+        // Check local FFmpeg availability for fallback
+        const localFfmpegReady = await isFfmpegAvailable();
+        if (!localFfmpegReady) {
+          throw new Error(`Render processor failed and local FFmpeg is unavailable: ${err.message}`);
+        }
+        console.log(`[VIDEO_PROCESSOR] Falling back to local video processing. requestId=${requestId} dealId=${dealId} fileId=${fileId}`);
+      }
+    }
+
     // 3. Verify FFmpeg availability
     const ffmpegReady = await isFfmpegAvailable();
     if (!ffmpegReady) {
@@ -175,6 +215,7 @@ export async function generateVideoPreview(dealId: string, fileVersionId: string
     }
 
     console.log(`[VIDEO_PREVIEW] Original video duration detected: ${duration}s`);
+    console.log(`[VIDEO_PROCESSOR] Local processing status. dealId=${dealId} fileId=${fileId} duration=${duration}s success=true`);
 
     // 6. Determine preview segment rules
     let previewStart = 0;
@@ -256,6 +297,7 @@ export async function generateVideoPreview(dealId: string, fileVersionId: string
     }
 
     console.log(`[VIDEO_PREVIEW] Generation complete and saved successfully for file=${fileId}!`);
+    console.log(`[VIDEO_PROCESSOR] Local processing complete. dealId=${dealId} fileId=${fileId} success=true`);
 
   } catch (error: any) {
     console.error(`[VIDEO_PREVIEW] Error occurred:`, error);
