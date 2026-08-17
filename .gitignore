@@ -35,3 +35,4 @@ delt_temp_font.ttf
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.env*

@@ -82,6 +82,7 @@ function CreateDealForm() {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(templateIdParam || '');
   const [validationError, setValidationError] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState('');
 
   const [data, setData] = useState<DealFormData>({
     clientName: '',
@@ -217,75 +218,197 @@ function CreateDealForm() {
     }
 
     setLoading(true);
+    setValidationError('');
+    setUploadProgress('Creating deal...');
 
     try {
-      // 1. Submit via FormData to support file uploads during creation
-      const formData = new FormData();
-      formData.append('clientName', data.clientName.trim());
-      formData.append('clientEmail', data.clientEmail.trim());
-      if (data.clientCompany.trim()) formData.append('clientCompany', data.clientCompany.trim());
-      formData.append('title', data.title.trim());
-      if (data.description.trim()) formData.append('description', data.description.trim());
-      formData.append('price', String(priceNum));
-      formData.append('currency', data.currency);
-      if (data.deadline) formData.append('deadline', data.deadline);
-      formData.append('scope', JSON.stringify(data.scope));
-      formData.append('deliverables', JSON.stringify(data.deliverables));
-
-      formData.append('previewEnabled', String(previewEnabled));
-
-      for (const file of selectedFiles) {
-        formData.append('files', file);
-        if (previewEnabled) {
-          try {
-            const previewBlob = await generateClientPreview(file);
-            if (previewBlob) {
-              const originalExt = file.name.split('.').pop()?.toLowerCase();
-              let previewExt = originalExt || 'jpg';
-              if (previewBlob.type === 'image/jpeg' && originalExt !== 'jpg' && originalExt !== 'jpeg') {
-                previewExt = 'jpg';
-              }
-              const originalBaseName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
-              const previewName = `preview-${originalBaseName}.${previewExt}`;
-              formData.append('previewFiles', new File([previewBlob], previewName, { type: previewBlob.type }));
-            }
-          } catch (err) {
-            console.error('Error generating preview for deal creation file:', err);
-          }
-        }
-      }
-
+      // 1. Submit deal metadata to /api/deals/create
       const res = await fetch('/api/deals/create', {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          clientName: data.clientName.trim(),
+          clientEmail: data.clientEmail.trim(),
+          clientCompany: data.clientCompany.trim(),
+          title: data.title.trim(),
+          description: data.description.trim(),
+          price: priceNum,
+          currency: data.currency,
+          deadline: data.deadline,
+          scope: data.scope,
+          deliverables: data.deliverables,
+          previewEnabled
+        }),
       });
 
-      if (res.ok) {
-        const json = await res.json();
-        if (json.deal) {
-          // Sync local reactive store
-          createDealInStore({
-            clientName: data.clientName.trim(),
-            clientEmail: data.clientEmail.trim(),
-            clientCompany: data.clientCompany.trim() || undefined,
-            title: data.title.trim(),
-            description: data.description.trim(),
-            scope: data.scope,
-            price: priceNum,
-            currency: data.currency,
-            deadline: data.deadline,
-            deliverables: data.deliverables,
+      if (!res.ok) {
+        const errJson = await res.json();
+        throw new Error(errJson.error || 'Failed to create deal');
+      }
+
+      const json = await res.json();
+      if (!json.success || !json.deal) {
+        throw new Error('Deal creation returned unsuccessful response');
+      }
+
+      const deal = json.deal;
+      const deliverableId = json.deliverableId;
+
+      // 2. Perform direct storage uploads for selected files
+      const uploadedFileItems: any[] = [];
+
+      if (selectedFiles.length > 0 && deliverableId) {
+        for (let i = 0; i < selectedFiles.length; i++) {
+          const file = selectedFiles[i];
+          setUploadProgress(`Uploading ${i + 1}/${selectedFiles.length}...`);
+
+          // A) Get signed upload URL for original file
+          const signRes = await fetch('/api/files/signed-url', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              dealId: deal.id,
+              fileName: file.name,
+              isUpload: true,
+              version: 1
+            })
           });
 
-          setCreatedDeal(json.deal);
-          setEmailStatus(json.emailResult || null);
-          setLoading(false);
-          return;
+          if (!signRes.ok) {
+            const signErr = await signRes.json();
+            throw new Error(`Failed to get upload authorization for ${file.name}: ${signErr.error || 'unknown error'}`);
+          }
+
+          const { signedUrl, filePath } = await signRes.json();
+
+          // B) PUT file directly to Supabase Storage signedUrl
+          const putRes = await fetch(signedUrl, {
+            method: 'PUT',
+            body: file,
+            headers: {
+              'Content-Type': file.type || 'application/octet-stream',
+            }
+          });
+
+          if (!putRes.ok) {
+            throw new Error(`Failed to upload ${file.name} directly to storage`);
+          }
+
+          // C) If preview enabled, generate client preview for images/PDFs
+          let previewPath = undefined;
+          let previewType = undefined;
+          let previewStatus = undefined;
+          let previewGeneratedAt = undefined;
+
+          const ext = file.name.split('.').pop()?.toLowerCase() || '';
+          const isVideo = (file.type || '').startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext);
+
+          if (previewEnabled && isVideo) {
+            previewStatus = 'processing';
+            previewType = 'video/mp4';
+          } else if (previewEnabled) {
+            try {
+              const previewBlob = await generateClientPreview(file);
+              if (previewBlob) {
+                const originalExt = file.name.split('.').pop()?.toLowerCase();
+                let previewExt = originalExt || 'jpg';
+                if (previewBlob.type === 'image/jpeg' && originalExt !== 'jpg' && originalExt !== 'jpeg') {
+                  previewExt = 'jpg';
+                }
+                const originalBaseName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
+                const previewName = `preview-${originalBaseName}.${previewExt}`;
+
+                // Request signed upload URL for preview file
+                const signPrevRes = await fetch('/api/files/signed-url', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    dealId: deal.id,
+                    fileName: previewName,
+                    isUpload: true,
+                    isPreview: true,
+                    version: 1
+                  })
+                });
+
+                if (signPrevRes.ok) {
+                  const { signedUrl: prevSignedUrl, filePath: prevFilePath } = await signPrevRes.json();
+
+                  const putPrevRes = await fetch(prevSignedUrl, {
+                    method: 'PUT',
+                    body: previewBlob,
+                    headers: {
+                      'Content-Type': previewBlob.type,
+                    }
+                  });
+
+                  if (putPrevRes.ok) {
+                    previewPath = prevFilePath;
+                    previewType = previewBlob.type;
+                    previewStatus = 'ready';
+                    previewGeneratedAt = new Date().toISOString();
+                  } else {
+                    console.error('Failed to PUT upload preview blob for:', file.name);
+                  }
+                }
+              }
+            } catch (err) {
+              console.error('Error generating/uploading preview client-side:', err);
+            }
+          }
+
+          uploadedFileItems.push({
+            id: `f_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            name: file.name,
+            size: file.size,
+            type: file.type,
+            path: filePath,
+            previewPath,
+            previewType,
+            previewStatus,
+            previewGeneratedAt
+          });
+        }
+
+        // D) Call /api/files/upload to register the metadata list in DB
+        const hasVideo = uploadedFileItems.some(f => f.previewStatus === 'processing');
+        if (hasVideo) {
+          setUploadProgress('Processing video preview...');
+        } else {
+          setUploadProgress('Finalizing...');
+        }
+
+        const registerRes = await fetch('/api/files/upload', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            dealId: deal.id,
+            deliverableId,
+            files: uploadedFileItems
+          })
+        });
+
+        if (!registerRes.ok) {
+          const regErr = await registerRes.json();
+          throw new Error(`Failed to register uploaded files: ${regErr.error || 'unknown error'}`);
+        }
+
+        // If there is a video and preview is enabled, wait a few seconds to let processor run
+        if (hasVideo) {
+          await new Promise(resolve => setTimeout(resolve, 5000));
         }
       }
 
-      // Fallback to local store
-      const localDeal = createDealInStore({
+      // Sync local reactive store
+      createDealInStore({
         clientName: data.clientName.trim(),
         clientEmail: data.clientEmail.trim(),
         clientCompany: data.clientCompany.trim() || undefined,
@@ -297,23 +420,15 @@ function CreateDealForm() {
         deadline: data.deadline,
         deliverables: data.deliverables,
       });
-      setCreatedDeal(localDeal);
+
+      setCreatedDeal(deal);
+      setEmailStatus(json.emailResult || null);
     } catch (err: any) {
       console.error('Error creating deal:', err);
-      const localDeal = createDealInStore({
-        clientName: data.clientName.trim(),
-        clientEmail: data.clientEmail.trim(),
-        title: data.title.trim(),
-        description: data.description.trim(),
-        scope: data.scope,
-        price: priceNum,
-        currency: data.currency,
-        deadline: data.deadline,
-        deliverables: data.deliverables,
-      });
-      setCreatedDeal(localDeal);
+      setValidationError(err.message || 'Deal creation failed.');
     } finally {
       setLoading(false);
+      setUploadProgress('');
     }
   }
 
@@ -904,7 +1019,7 @@ function CreateDealForm() {
             ) : (
               <Button onClick={handleCreate} disabled={loading} className="gap-1.5">
                 <Check className="h-4 w-4" />
-                {loading ? 'Creating Deal & Uploading...' : 'Create Deal'}
+                {loading ? (uploadProgress || 'Creating Deal & Uploading...') : 'Create Deal'}
               </Button>
             )}
           </div>

@@ -258,118 +258,8 @@ export async function POST(request: Request) {
       }
     }
 
-    // 6. Handle file uploads if files were provided
+    // 6. Handle file uploads (delegated to client direct upload)
     let uploadedFileItems: any[] = [];
-    if (uploadedFiles.length > 0 && primaryDeliverableId) {
-      for (const file of uploadedFiles) {
-        const cleanFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-        const storagePath = `${deal.id}/v1/${Date.now()}_${cleanFileName}`;
-        const fileBuffer = Buffer.from(await file.arrayBuffer());
-
-        const { error: uploadErr } = await admin.storage
-          .from('deal-files')
-          .upload(storagePath, fileBuffer, {
-            contentType: file.type || 'application/octet-stream',
-            upsert: true,
-          });
-
-        if (!uploadErr) {
-          let previewPath = undefined;
-          let previewType = undefined;
-          let previewStatus = undefined;
-          let previewGeneratedAt = undefined;
-
-          const ext = file.name.split('.').pop()?.toLowerCase() || '';
-          const isVideo = (file.type || '').startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext);
-
-          if (previewEnabled && isVideo) {
-            previewStatus = 'processing';
-            previewType = 'video/mp4';
-          } else if (previewEnabled && previewFiles.length > 0) {
-            const originalBase = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
-            const matchingPreview = previewFiles.find((p) => {
-              const previewBase = p.name.substring(0, p.name.lastIndexOf('.')) || p.name;
-              return previewBase === `preview-${originalBase}`;
-            });
-
-            if (matchingPreview) {
-              const previewBuffer = Buffer.from(await matchingPreview.arrayBuffer());
-              const previewCleanName = matchingPreview.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-              const pPath = `previews/${deal.id}/v1/${Date.now()}_${previewCleanName}`;
-
-              const { error: previewUploadErr } = await admin.storage
-                .from('deal-files')
-                .upload(pPath, previewBuffer, {
-                  contentType: matchingPreview.type || 'application/octet-stream',
-                  upsert: true,
-                });
-
-              if (!previewUploadErr) {
-                previewPath = pPath;
-                previewType = matchingPreview.type;
-                previewStatus = 'ready';
-                previewGeneratedAt = new Date().toISOString();
-              } else {
-                console.error('Error uploading deal creation preview:', previewUploadErr);
-                previewPath = pPath;
-                previewType = matchingPreview.type;
-                previewStatus = 'failed';
-                previewGeneratedAt = new Date().toISOString();
-              }
-            }
-          }
-
-          uploadedFileItems.push({
-            id: `f_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-            name: file.name,
-            size: file.size,
-            type: file.type,
-            path: storagePath,
-            previewPath,
-            previewType,
-            previewStatus: previewStatus as any,
-            previewGeneratedAt,
-          });
-        }
-      }
-
-      if (uploadedFileItems.length > 0) {
-        const { data: versionRecord, error: versionErr } = await admin.from('file_versions').insert({
-          deliverable_id: primaryDeliverableId,
-          deal_id: deal.id,
-          version: 1,
-          description: 'Initial project deliverable files',
-          uploader_id: user.id,
-          uploader_name: user.user_metadata?.displayName || 'Creator',
-          files: uploadedFileItems,
-          status: 'pending_review',
-          locked: true,
-        }).select().single();
-
-        if (!versionErr && versionRecord) {
-          // Trigger server-side video preview generation for files marked 'processing'
-          for (const item of uploadedFileItems) {
-            if (item.previewStatus === 'processing') {
-              const { generateVideoPreview } = await import('@/lib/video-preview');
-              generateVideoPreview(deal.id, versionRecord.id, item.id).catch((err) => {
-                console.error('[VIDEO_PREVIEW] Initial deal creation background generation error:', err);
-              });
-            }
-          }
-        }
-
-        // Update user storage usage
-        const totalUploadedBytes = uploadedFiles.reduce((acc, f) => acc + f.size, 0);
-        const { data: stRecord } = await admin.from('storage_usage').select('*').eq('user_id', user.id).maybeSingle();
-        if (stRecord) {
-          await admin.from('storage_usage').update({
-            total_bytes: Number(stRecord.total_bytes || 0) + totalUploadedBytes,
-            files_bytes: Number(stRecord.files_bytes || 0) + totalUploadedBytes,
-            updated_at: now,
-          }).eq('user_id', user.id);
-        }
-      }
-    }
 
     // 7. Initial Events & Greeting message
     await admin.from('deal_events').insert([
@@ -458,7 +348,8 @@ export async function POST(request: Request) {
       token: deal.token,
       url: canonicalDealUrl,
       emailResult,
-      filesUploaded: uploadedFileItems.length,
+      deliverableId: primaryDeliverableId,
+      filesUploaded: 0,
     });
   } catch (error: any) {
     console.error('Error creating deal:', error);

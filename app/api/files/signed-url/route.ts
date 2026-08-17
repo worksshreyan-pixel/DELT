@@ -6,10 +6,57 @@ import { verifyClientSessionToken } from '@/lib/otp';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { dealId, token, filePath, isCreator } = body;
+    const { dealId, isUpload } = body;
 
-    if (!dealId || !filePath) {
-      return NextResponse.json({ error: 'Deal ID and file path are required' }, { status: 400 });
+    if (!dealId) {
+      return NextResponse.json({ error: 'Deal ID is required' }, { status: 400 });
+    }
+
+    if (isUpload) {
+      const supabase = createServerSupabaseClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+
+      const admin = createAdminClient();
+      const { data: deal, error: dealError } = await admin
+        .from('deals')
+        .select('*')
+        .eq('id', dealId)
+        .eq('creator_id', user.id)
+        .maybeSingle();
+
+      if (dealError || !deal) {
+        return NextResponse.json({ error: 'Deal not found or unauthorized' }, { status: 403 });
+      }
+
+      const fileName = body.fileName || 'file';
+      const cleanFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const isPreview = body.isPreview === true;
+      const version = body.version || 1;
+      const storagePath = isPreview
+        ? `previews/${dealId}/v${version}/${Date.now()}_${cleanFileName}`
+        : `${dealId}/v${version}/${Date.now()}_${cleanFileName}`;
+
+      const { data: uploadUrlData, error: uploadUrlError } = await admin.storage
+        .from('deal-files')
+        .createSignedUploadUrl(storagePath);
+
+      if (uploadUrlError || !uploadUrlData?.signedUrl) {
+        console.error('Error generating signed upload URL:', uploadUrlError);
+        return NextResponse.json({ error: 'Failed to generate signed upload URL' }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        signedUrl: uploadUrlData.signedUrl,
+        filePath: storagePath
+      });
+    }
+
+    const { token, filePath, isCreator } = body;
+    if (!filePath) {
+      return NextResponse.json({ error: 'File path is required' }, { status: 400 });
     }
 
     const admin = createAdminClient();
