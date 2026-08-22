@@ -37,6 +37,7 @@ import { cn } from '@/lib/utils';
 import { formatCurrency, formatBytes } from '@/lib/plans';
 import { STANDARD_TEMPLATES, createDealInStore, useAppStore, type Deal } from '@/lib/app-store';
 import { getDealPublicUrl } from '@/lib/deal-url';
+import { uploadQueue } from '@/lib/upload-queue';
 
 const steps = [
   { id: 'client', label: 'Client', icon: User },
@@ -256,151 +257,15 @@ function CreateDealForm() {
       const deal = json.deal;
       const deliverableId = json.deliverableId;
 
-      // 2. Perform direct storage uploads for selected files
-      const uploadedFileItems: any[] = [];
-
+      // 2. Perform direct storage uploads for selected files asynchronously
       if (selectedFiles.length > 0 && deliverableId) {
-        for (let i = 0; i < selectedFiles.length; i++) {
-          const file = selectedFiles[i];
-          setUploadProgress(`Uploading ${i + 1}/${selectedFiles.length}...`);
-
-          // A) Get signed upload URL for original file
-          const signRes = await fetch('/api/files/signed-url', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              dealId: deal.id,
-              fileName: file.name,
-              isUpload: true,
-              version: 1
-            })
-          });
-
-          if (!signRes.ok) {
-            const signErr = await signRes.json();
-            throw new Error(`Failed to get upload authorization for ${file.name}: ${signErr.error || 'unknown error'}`);
-          }
-
-          const { signedUrl, filePath } = await signRes.json();
-
-          // B) PUT file directly to Supabase Storage signedUrl
-          const putRes = await fetch(signedUrl, {
-            method: 'PUT',
-            body: file,
-            headers: {
-              'Content-Type': file.type || 'application/octet-stream',
-            }
-          });
-
-          if (!putRes.ok) {
-            throw new Error(`Failed to upload ${file.name} directly to storage`);
-          }
-
-          // C) If preview enabled, generate client preview for images/PDFs
-          let previewPath = undefined;
-          let previewType = undefined;
-          let previewStatus = undefined;
-          let previewGeneratedAt = undefined;
-
-          const ext = file.name.split('.').pop()?.toLowerCase() || '';
-          const isVideo = (file.type || '').startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext);
-
-          if (previewEnabled && isVideo) {
-            previewStatus = 'processing';
-            previewType = 'video/mp4';
-          } else if (previewEnabled) {
-            try {
-              const previewBlob = await generateClientPreview(file);
-              if (previewBlob) {
-                const originalExt = file.name.split('.').pop()?.toLowerCase();
-                let previewExt = originalExt || 'jpg';
-                if (previewBlob.type === 'image/jpeg' && originalExt !== 'jpg' && originalExt !== 'jpeg') {
-                  previewExt = 'jpg';
-                }
-                const originalBaseName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
-                const previewName = `preview-${originalBaseName}.${previewExt}`;
-
-                // Request signed upload URL for preview file
-                const signPrevRes = await fetch('/api/files/signed-url', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    dealId: deal.id,
-                    fileName: previewName,
-                    isUpload: true,
-                    isPreview: true,
-                    version: 1
-                  })
-                });
-
-                if (signPrevRes.ok) {
-                  const { signedUrl: prevSignedUrl, filePath: prevFilePath } = await signPrevRes.json();
-
-                  const putPrevRes = await fetch(prevSignedUrl, {
-                    method: 'PUT',
-                    body: previewBlob,
-                    headers: {
-                      'Content-Type': previewBlob.type,
-                    }
-                  });
-
-                  if (putPrevRes.ok) {
-                    previewPath = prevFilePath;
-                    previewType = previewBlob.type;
-                    previewStatus = 'ready';
-                    previewGeneratedAt = new Date().toISOString();
-                  } else {
-                    console.error('Failed to PUT upload preview blob for:', file.name);
-                  }
-                }
-              }
-            } catch (err) {
-              console.error('Error generating/uploading preview client-side:', err);
-            }
-          }
-
-          uploadedFileItems.push({
-            id: `f_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-            name: file.name,
-            size: file.size,
-            type: file.type,
-            path: filePath,
-            previewPath,
-            previewType,
-            previewStatus,
-            previewGeneratedAt
-          });
-        }
-
-        // D) Call /api/files/upload to register the metadata list in DB
-        const hasVideo = uploadedFileItems.some(f => f.previewStatus === 'processing');
-        if (hasVideo) {
-          setUploadProgress('Processing video preview...');
-        } else {
-          setUploadProgress('Finalizing...');
-        }
-
-        const registerRes = await fetch('/api/files/upload', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            dealId: deal.id,
-            deliverableId,
-            files: uploadedFileItems
-          })
-        });
-
-        if (!registerRes.ok) {
-          const regErr = await registerRes.json();
-          throw new Error(`Failed to register uploaded files: ${regErr.error || 'unknown error'}`);
-        }
-
+        uploadQueue.addUploads(
+          deal.id,
+          deliverableId,
+          selectedFiles,
+          'Initial project deliverable files',
+          previewEnabled
+        );
       }
 
       // Sync local reactive store

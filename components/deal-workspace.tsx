@@ -50,7 +50,8 @@ import { createClient } from '@/lib/supabase/client';
 import { hasSupabasePublicConfig } from '@/lib/env';
 import { getDealPublicUrl } from '@/lib/deal-url';
 import { useRouter } from 'next/navigation';
-import { cn, serializeDescription } from '@/lib/utils';
+import { cn, serializeDescription, parseDescription } from '@/lib/utils';
+import { uploadQueue, type UploadTask } from '@/lib/upload-queue';
 import { addMessageToStore, addProposalToStore, respondToProposalInStore, permanentlyDeleteDealInStore, closeDealInStore } from '@/lib/app-store';
 import type { Deal, DealMessage, PriceProposal, DealEvent, FileVersion, Deliverable, Milestone, Payment, ChangeRequest } from '@/lib/types';
 
@@ -108,6 +109,50 @@ export function DealWorkspace({
   useEffect(() => {
     setLocalFileVersions(fileVersions);
   }, [fileVersions]);
+
+  async function refreshFiles() {
+    try {
+      const supabase = createClient();
+      const { data: dbVersions } = await supabase
+        .from('file_versions')
+        .select('*')
+        .eq('deal_id', currentDeal.id)
+        .order('version', { ascending: true });
+
+      if (dbVersions) {
+        const formatted = dbVersions.map((v: any) => ({
+          id: v.id,
+          deliverableId: v.deliverable_id,
+          dealId: v.deal_id,
+          version: v.version,
+          description: v.description,
+          uploaderId: v.uploader_id,
+          uploaderName: v.uploader_name,
+          files: Array.isArray(v.files) ? v.files : [],
+          status: v.status,
+          locked: Boolean(v.locked),
+          createdAt: v.created_at,
+        }));
+        setLocalFileVersions(formatted);
+      }
+    } catch (err) {
+      console.error('Error refreshing files:', err);
+    }
+  }
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleRefresh = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail?.dealId === currentDeal.id) {
+        refreshFiles();
+      }
+    };
+    window.addEventListener('delt-files-uploaded', handleRefresh);
+    return () => {
+      window.removeEventListener('delt-files-uploaded', handleRefresh);
+    };
+  }, [currentDeal.id]);
 
   // Polling for processing previews
   useEffect(() => {
@@ -1150,7 +1195,18 @@ function FilesTab({
   const [uploadError, setUploadError] = useState('');
 
   const [localDeliverables, setLocalDeliverables] = useState<Deliverable[]>([]);
-  
+  const [activeTasks, setActiveTasks] = useState<UploadTask[]>([]);
+
+  useEffect(() => {
+    return uploadQueue.subscribe((tasks) => {
+      setActiveTasks(tasks.filter((t) => t.dealId === deal.id));
+    });
+  }, [deal.id]);
+
+  const runningTasks = activeTasks.filter(
+    (t) => t.status === 'uploading' || t.status === 'waiting' || t.status === 'failed'
+  );
+
   useEffect(() => {
     setLocalDeliverables(deliverables.filter(d => !d.name.startsWith('[DELETED]')));
   }, [deliverables]);
@@ -1163,44 +1219,23 @@ function FilesTab({
     e.preventDefault();
     if (!selectedFile) return;
 
-    setUploading(true);
-    setUploadError('');
-
     try {
-      const previewBlob = await generateClientPreview(selectedFile);
+      const { previewEnabled } = parseDescription(deal.description);
+      const deliverableId = selectedDeliverable || deliverables[0]?.id || 'del-1';
 
-      const formData = new FormData();
-      formData.append('dealId', deal.id);
-      formData.append('deliverableId', selectedDeliverable || deliverables[0]?.id || 'del-1');
-      formData.append('description', fileDesc);
-      formData.append('file', selectedFile);
-      if (previewBlob) {
-        const originalExt = selectedFile.name.split('.').pop()?.toLowerCase();
-        let previewExt = originalExt;
-        if (previewBlob.type === 'image/jpeg' && originalExt !== 'jpg' && originalExt !== 'jpeg') {
-          previewExt = 'jpg';
-        }
-        const previewName = selectedFile.name.replace(/\.[^.]+$/, `-preview.${previewExt}`);
-        formData.append('previewFile', new File([previewBlob], previewName, { type: previewBlob.type }));
-      }
-
-      const res = await fetch('/api/files/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to upload file');
-      }
+      uploadQueue.addUploads(
+        deal.id,
+        deliverableId,
+        [selectedFile],
+        fileDesc,
+        previewEnabled
+      );
 
       setUploadOpen(false);
       setSelectedFile(null);
       setFileDesc('');
     } catch (err: any) {
       setUploadError(err.message || 'Upload failed');
-    } finally {
-      setUploading(false);
     }
   }
 
@@ -1269,6 +1304,50 @@ function FilesTab({
               {downloadingAll ? 'Downloading...' : 'Download All Files'}
             </Button>
           </div>
+        )}
+
+        {runningTasks.length > 0 && (
+          <Card className="border border-primary/20 bg-primary/5 p-4 rounded-xl space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-semibold flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+                Uploading Files ({runningTasks.filter(t => t.status !== 'failed').length} in queue)
+              </h4>
+            </div>
+            <div className="space-y-3">
+              {runningTasks.map((task) => (
+                <div key={task.id} className="text-xs space-y-1 bg-background/50 border border-border/50 rounded-lg p-2.5 relative">
+                  <div className="flex items-center justify-between font-medium">
+                    <span className="truncate max-w-[250px] pr-6">{task.fileName}</span>
+                    {task.status === 'failed' ? (
+                      <span className="text-destructive font-semibold">Failed</span>
+                    ) : (
+                      <span className="text-muted-foreground">{task.percentage}%</span>
+                    )}
+                  </div>
+                  {task.status === 'failed' ? (
+                    <p className="text-[10px] text-destructive mt-0.5">{task.error || 'Upload error'}</p>
+                  ) : (
+                    <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden mt-1">
+                      <div
+                        className="bg-primary h-full transition-all duration-200"
+                        style={{ width: `${task.percentage}%` }}
+                      />
+                    </div>
+                  )}
+                  {task.status === 'failed' && (
+                    <button
+                      type="button"
+                      onClick={() => uploadQueue.removeTask(task.id)}
+                      className="absolute top-2 right-2 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </Card>
         )}
 
         {/* Upload area */}
