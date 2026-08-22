@@ -6,6 +6,7 @@ import { env, hasRazorpayConfig } from '@/lib/env';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 export async function POST(request: Request) {
+  console.log('[PAYMENT_CREATE_START]');
   try {
     const body = await request.json();
     const { dealId, token } = body;
@@ -26,6 +27,7 @@ export async function POST(request: Request) {
     const { data: deal, error: dealError } = await query.maybeSingle();
 
     if (dealError || !deal) {
+      console.log('[PAYMENT_CREATE_ERROR] Deal not found');
       return NextResponse.json({ error: 'Deal not found' }, { status: 404 });
     }
 
@@ -40,12 +42,15 @@ export async function POST(request: Request) {
       : false;
 
     const isCreator = user && user.id === deal.creator_id;
+    console.log('[PAYMENT_AUTH_OK]');
     const isClient = (user && user.email?.toLowerCase() === deal.client_email?.toLowerCase()) || hasValidClientToken;
 
     if (isCreator) {
+      console.log('[PAYMENT_AUTH_ERROR] Creator attempted payment');
       return NextResponse.json({ error: 'Creators cannot make payments.' }, { status: 403 });
     }
     if (!isClient) {
+      console.log('[PAYMENT_AUTH_ERROR] Unauthorized client');
       return NextResponse.json({ error: 'Unauthorized client access.' }, { status: 403 });
     }
 
@@ -76,6 +81,8 @@ export async function POST(request: Request) {
           clientEmail: deal.client_email,
         },
       });
+      console.log('[PAYMENT_RAZORPAY_ORDER_CREATED]');
+
 
       // Insert or update payment record
       await supabase.from('payments').upsert({
@@ -128,7 +135,7 @@ export async function POST(request: Request) {
       demo: true,
     });
   } catch (error: any) {
-    console.error('Error creating payment order:', error);
+    console.error('[PAYMENT_CREATE_ERROR]', error);
     return NextResponse.json({ error: error?.message || 'Failed to create payment order' }, { status: 500 });
   }
 }

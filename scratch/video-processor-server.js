@@ -11,6 +11,8 @@ const execPromise = promisify(exec);
 
 const app = express();
 app.use(express.json());
+const { computePreviewSegment } = require('../lib/preview-rules.js');
+
 
 const PORT = process.env.PORT || 10000;
 
@@ -163,27 +165,9 @@ async function generateVideoPreview(dealId, fileVersionId, fileId) {
 
     console.log(`[VIDEO_PREVIEW] Original video duration detected: ${duration}s`);
 
-    let previewStart = 0;
-    let previewDuration = duration;
-
-    // Apply preview duration and start-time logic:
-    // 1. If source video duration <= 10 seconds:
-    //    - previewDuration = source video duration
-    //    - previewStart = 0
-    // 2. If source video duration > 10 seconds:
-    //    - previewDuration = exactly 10 seconds
-    //    - previewStart = randomly selected in [0, duration - 10]
-    if (duration <= 10) {
-      previewDuration = duration;
-      previewStart = 0;
-    } else {
-      previewDuration = 10;
-      previewStart = Math.random() * (duration - 10);
-      
-      // Round previewStart to 2 decimal places
-      previewStart = Math.round(previewStart * 100) / 100;
-    }
-
+    const { previewStart: computedStart, previewDuration: computedDuration } = computePreviewSegment(duration);
+    const previewStart = computedStart;
+    const previewDuration = computedDuration;
     console.log(`[VIDEO_PREVIEW] Selected rules: start=${previewStart}s, duration=${previewDuration}s`);
 
     // Dynamic contrast luminance analysis
@@ -378,9 +362,11 @@ app.post('/process', authenticate, async (req, res) => {
 
 app.listen(PORT, '0.0.0.0', async () => {
   console.log(`Video processor listening on port ${PORT}`);
+  console.log(`[DELT_PROCESSOR_VERSION] version=${process.env.npm_package_version || 'unknown'}`);
+  console.log(`[DELT_PROCESSOR_COMMIT] commit=${process.env.GIT_COMMIT || 'unknown'}`);
   try {
     const { stdout: versionOut } = await execPromise('ffmpeg -version');
-    console.log(`[VIDEO_PREVIEW_DIAGNOSTIC] FFmpeg is available:\n${versionOut.split('\n')[0]}`);
+    console.log(`[VIDEO_PREVIEW_DIAGNOSTIC] FFmpeg is available:\n${versionOut.split('\\n')[0]}`);
     const whichCmd = process.platform === 'win32' ? 'where ffmpeg' : 'which ffmpeg';
     const { stdout: whichOut } = await execPromise(whichCmd);
     console.log(`[VIDEO_PREVIEW_DIAGNOSTIC] FFmpeg binary path: ${whichOut.trim()}`);

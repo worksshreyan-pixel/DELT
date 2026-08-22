@@ -6,6 +6,7 @@ import { sendPaymentConfirmationEmail } from '@/lib/email';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 export async function POST(request: Request) {
+  console.log('[PAYMENT_VERIFY_START]');
   try {
     const body = await request.json();
     const { orderId, paymentId, signature, dealId, demo } = body;
@@ -20,8 +21,10 @@ export async function POST(request: Request) {
     if (hasRazorpayConfig() && !demo) {
       const isValid = verifyRazorpaySignature(orderId, paymentId, signature);
       if (!isValid) {
+        console.log('[PAYMENT_SIGNATURE_INVALID]');
         return NextResponse.json({ error: 'Invalid payment signature' }, { status: 400 });
       }
+      console.log('[PAYMENT_SIGNATURE_VALID]');
     }
 
     // Fetch deal
@@ -191,6 +194,7 @@ export async function POST(request: Request) {
       console.error('Error dispatching payment confirmation emails:', emailErr);
     }
 
+    console.log('[PAYMENT_VERIFY_SUCCESS]');
     return NextResponse.json({
       success: true,
       dealId: deal.id,
@@ -198,7 +202,7 @@ export async function POST(request: Request) {
       paymentStatus: 'paid',
     });
   } catch (error: any) {
-    console.error('Error verifying payment:', error);
+    console.error('[PAYMENT_VERIFY_ERROR]', error);
     return NextResponse.json({ error: error?.message || 'Payment verification failed' }, { status: 500 });
   }
 }

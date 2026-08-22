@@ -31,6 +31,7 @@ export function verifyRazorpaySignature(
   signature: string
 ): boolean {
   if (!env.razorpay.keySecret) return false;
+  if (typeof signature !== 'string') return false;
 
   const payload = `${orderId}|${paymentId}`;
   const expectedSignature = crypto
@@ -38,10 +39,14 @@ export function verifyRazorpaySignature(
     .update(payload)
     .digest('hex');
 
-  return crypto.timingSafeEqual(
-    Buffer.from(signature, 'utf8'),
-    Buffer.from(expectedSignature, 'utf8')
-  );
+  const sigBuffer = Buffer.from(signature, 'utf8');
+  const expBuffer = Buffer.from(expectedSignature, 'utf8');
+
+  if (sigBuffer.length !== expBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(sigBuffer, expBuffer);
 }
 
 /**
@@ -53,14 +58,19 @@ export function verifyRazorpayWebhookSignature(
   signature: string
 ): boolean {
   if (!env.razorpay.webhookSecret) return false;
+  if (typeof signature !== 'string') return false;
 
   const expectedSignature = crypto
     .createHmac('sha256', env.razorpay.webhookSecret)
     .update(body)
     .digest('hex');
 
-  return crypto.timingSafeEqual(
-    Buffer.from(signature, 'utf8'),
-    Buffer.from(expectedSignature, 'utf8')
-  );
+  const sigBuffer = Buffer.from(signature, 'utf8');
+  const expBuffer = Buffer.from(expectedSignature, 'utf8');
+
+  if (sigBuffer.length !== expBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(sigBuffer, expBuffer);
 }

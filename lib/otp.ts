@@ -9,6 +9,8 @@ import { sendOtpEmail } from '@/lib/email';
 import { parseDescription } from '@/lib/utils';
 
 const OTP_SECRET = process.env.SUPABASE_SERVICE_ROLE_KEY || 'delt_otp_default_hmac_secret_key_2026';
+// Secret used for signing client session tokens. Separate from OTP_SECRET to avoid coupling with service role key.
+const CLIENT_SESSION_TOKEN_SECRET = process.env.CLIENT_SESSION_TOKEN_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || 'delt_client_session_default_secret_2026';
 const OTP_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_ATTEMPTS = 5;
 const COOLDOWN_SECONDS = 30;
@@ -825,8 +827,9 @@ export async function verifyDealOtp(
 
   const payloadJson = JSON.stringify(sessionPayload);
   const payloadB64 = Buffer.from(payloadJson).toString('base64url');
+  // Sign using dedicated client session token secret
   const signature = crypto
-    .createHmac('sha256', OTP_SECRET)
+    .createHmac('sha256', CLIENT_SESSION_TOKEN_SECRET)
     .update(payloadB64)
     .digest('base64url');
 
@@ -877,8 +880,9 @@ export function verifyClientSessionToken(
   const [payloadB64, signature] = tokenString.split('.');
   if (!payloadB64 || !signature) return false;
 
+  // Use dedicated client session token secret for verification
   const expectedSignature = crypto
-    .createHmac('sha256', OTP_SECRET)
+    .createHmac('sha256', CLIENT_SESSION_TOKEN_SECRET)
     .update(payloadB64)
     .digest('base64url');
 

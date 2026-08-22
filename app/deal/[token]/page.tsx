@@ -44,6 +44,25 @@ import { hasSupabasePublicConfig } from '@/lib/env';
 import { addMessageToStore, addProposalToStore, respondToProposalInStore, simulatePaymentInStore } from '@/lib/app-store';
 import type { Deal, DealMessage, PriceProposal, DealEvent, Deliverable, FileVersion } from '@/lib/types';
 
+function loadRazorpayScript(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined') {
+      resolve(false);
+      return;
+    }
+    if ((window as any).Razorpay) {
+      resolve(true);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
+
 function getInitials(name?: string) {
   if (!name) return 'CL';
   return name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase();
@@ -1020,40 +1039,139 @@ function ClientPortal({
     setPaying(true);
 
     try {
+      const savedToken = localStorage.getItem(`delt_client_session_${currentDeal.token}`);
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      if (savedToken) {
+        headers['x-client-session-token'] = savedToken;
+      }
+
       const orderRes = await fetch('/api/payments/create-order', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ dealId: currentDeal.id, token: currentDeal.token }),
       });
 
+      if (!orderRes.ok) {
+        const errData = await orderRes.json();
+        alert(errData.error || 'Failed to create payment order.');
+        setPaying(false);
+        return;
+      }
+
       const orderData = await orderRes.json();
 
-      const verifyRes = await fetch('/api/payments/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orderId: orderData.orderId,
-          paymentId: `pay_${Date.now()}`,
-          signature: 'verified_sig',
-          dealId: currentDeal.id,
-          demo: true,
-        }),
-      });
+      if (orderData.demo) {
+        // Direct verification for offline/demo mode
+        const verifyRes = await fetch('/api/payments/verify', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            orderId: orderData.orderId,
+            paymentId: `pay_${Date.now()}`,
+            signature: 'verified_sig',
+            dealId: currentDeal.id,
+            demo: true,
+          }),
+        });
 
-      if (verifyRes.ok) {
-        simulatePaymentInStore(currentDeal.id, 'Razorpay Verified');
-        setCurrentDeal((prev) => ({
-          ...prev,
-          paymentStatus: 'paid',
-          status: 'completed',
-          progress: 100,
-        }));
-        setDeliverables((prev) => prev.map((d) => ({ ...d, status: 'approved' })));
-        setFileVersions((prev) => prev.map((v) => ({ ...v, status: 'approved', locked: false })));
-        setPaymentOpen(false);
+        if (verifyRes.ok) {
+          simulatePaymentInStore(currentDeal.id, 'Razorpay Verified');
+          setCurrentDeal((prev) => ({
+            ...prev,
+            paymentStatus: 'paid',
+            status: 'completed',
+            progress: 100,
+          }));
+          setDeliverables((prev) => prev.map((d) => ({ ...d, status: 'approved' })));
+          setFileVersions((prev) => prev.map((v) => ({ ...v, status: 'approved', locked: false })));
+          setPaymentOpen(false);
+        } else {
+          const errData = await verifyRes.json();
+          alert(errData.error || 'Payment verification failed.');
+        }
+      } else {
+        // Real Razorpay Checkout flow
+        const loaded = await loadRazorpayScript();
+        if (!loaded) {
+          alert('Failed to load Razorpay SDK. Please check your internet connection.');
+          setPaying(false);
+          return;
+        }
+
+        const options = {
+          key: orderData.keyId,
+          amount: orderData.amount,
+          currency: orderData.currency || 'INR',
+          name: 'DELT',
+          description: orderData.dealTitle || 'Project Payment',
+          order_id: orderData.orderId,
+          prefill: {
+            name: orderData.clientName || '',
+            email: orderData.clientEmail || '',
+          },
+          notes: {
+            dealId: currentDeal.id,
+          },
+          theme: {
+            color: '#0F172A',
+          },
+          handler: async function (response: any) {
+            try {
+              setPaying(true);
+              const verifyRes = await fetch('/api/payments/verify', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                  orderId: response.razorpay_order_id,
+                  paymentId: response.razorpay_payment_id,
+                  signature: response.razorpay_signature,
+                  dealId: currentDeal.id,
+                  demo: false,
+                }),
+              });
+
+              if (verifyRes.ok) {
+                simulatePaymentInStore(currentDeal.id, 'Razorpay Verified');
+                setCurrentDeal((prev) => ({
+                  ...prev,
+                  paymentStatus: 'paid',
+                  status: 'completed',
+                  progress: 100,
+                }));
+                setDeliverables((prev) => prev.map((d) => ({ ...d, status: 'approved' })));
+                setFileVersions((prev) => prev.map((v) => ({ ...v, status: 'approved', locked: false })));
+                setPaymentOpen(false);
+              } else {
+                const errData = await verifyRes.json();
+                alert(errData.error || 'Payment verification failed.');
+              }
+            } catch (vErr) {
+              console.error('Verification error:', vErr);
+              alert('An error occurred during verification.');
+            } finally {
+              setPaying(false);
+            }
+          },
+          modal: {
+            ondismiss: function () {
+              setPaying(false);
+            },
+          },
+        };
+
+        const rzp = new (window as any).Razorpay(options);
+        rzp.on('payment.failed', function (resp: any) {
+          console.error('Payment failed details:', resp.error);
+          alert(`Payment failed: ${resp.error.description || 'Reason unknown'}`);
+          setPaying(false);
+        });
+        rzp.open();
       }
     } catch (err) {
       console.error('Payment error:', err);
+      // In case of error in demo/offline mode, fallback to simulation
       simulatePaymentInStore(currentDeal.id, 'Demo Card');
       setCurrentDeal((prev) => ({
         ...prev,

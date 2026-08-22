@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { computePreviewSegment } from './preview-rules';
 
 const execPromise = promisify(exec);
 
@@ -270,23 +271,10 @@ export async function generateVideoPreview(dealId: string, fileVersionId: string
     let previewStart = 0;
     let previewDuration = duration;
 
-    // Apply preview duration and start-time logic:
-    // 1. If source video duration <= 10 seconds:
-    //    - previewDuration = source video duration
-    //    - previewStart = 0
-    // 2. If source video duration > 10 seconds:
-    //    - previewDuration = exactly 10 seconds
-    //    - previewStart = randomly selected in [0, duration - 10]
-    if (duration <= 10) {
-      previewDuration = duration;
-      previewStart = 0;
-    } else {
-      previewDuration = 10;
-      previewStart = Math.random() * (duration - 10);
-      
-      // Round previewStart to 2 decimal places
-      previewStart = Math.round(previewStart * 100) / 100;
-    }
+    // Apply preview duration and start-time logic using shared helper
+    const { previewStart: computedStart, previewDuration: computedDuration } = computePreviewSegment(duration);
+    previewStart = computedStart;
+    previewDuration = computedDuration;
 
     console.log(`[VIDEO_PREVIEW] Selected rules: start=${previewStart}s, duration=${previewDuration}s`);
 
