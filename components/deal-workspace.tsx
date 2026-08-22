@@ -24,6 +24,12 @@ import {
   Copy,
   Share2,
   ExternalLink,
+  Edit,
+  Trash,
+  Plus,
+  RefreshCw,
+  Settings,
+  Eye,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -86,10 +92,147 @@ export function DealWorkspace({
 }: DealWorkspaceProps) {
   const router = useRouter();
   const [currentDeal, setCurrentDeal] = useState<Deal>(deal);
+  const isPaidOrCompleted = currentDeal.paymentStatus === 'paid' || currentDeal.status === 'completed';
+
+  const [localFileVersions, setLocalFileVersions] = useState<FileVersion[]>(fileVersions);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [previewMimeType, setPreviewMimeType] = useState('');
+  const [previewFileName, setPreviewFileName] = useState('');
+  const [previewLoadingFileId, setPreviewLoadingFileId] = useState<string | null>(null);
 
   useEffect(() => {
     setCurrentDeal(deal);
   }, [deal]);
+
+  useEffect(() => {
+    setLocalFileVersions(fileVersions);
+  }, [fileVersions]);
+
+  // Polling for processing previews
+  useEffect(() => {
+    let hasProcessing = false;
+    for (const v of localFileVersions) {
+      const files = Array.isArray(v.files) ? v.files : [];
+      if (files.some((f: any) => f.previewStatus === 'processing')) {
+        hasProcessing = true;
+        break;
+      }
+    }
+
+    if (!hasProcessing) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const supabase = createClient();
+        const { data: dbVersions } = await supabase
+          .from('file_versions')
+          .select('*')
+          .eq('deal_id', currentDeal.id)
+          .order('version', { ascending: true });
+
+        if (dbVersions) {
+          const formatted = dbVersions.map((v: any) => ({
+            id: v.id,
+            deliverableId: v.deliverable_id,
+            dealId: v.deal_id,
+            version: v.version,
+            description: v.description,
+            uploaderId: v.uploader_id,
+            uploaderName: v.uploader_name,
+            files: Array.isArray(v.files) ? v.files : [],
+            status: v.status,
+            locked: Boolean(v.locked),
+            createdAt: v.created_at,
+          }));
+
+          setLocalFileVersions(formatted);
+
+          // Check if still has processing
+          const stillProcessing = formatted.some((v: any) =>
+            v.files.some((f: any) => f.previewStatus === 'processing')
+          );
+          if (!stillProcessing) {
+            clearInterval(interval);
+          }
+        }
+      } catch (err) {
+        console.error('Error polling preview status:', err);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [localFileVersions, currentDeal.id]);
+
+  async function handleViewPreview(versionId: string, fileId: string, fileName: string, mimeType: string) {
+    if (previewLoadingFileId) return;
+    setPreviewLoadingFileId(fileId);
+    try {
+      const res = await fetch('/api/files/preview', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          dealId: currentDeal.id,
+          token: currentDeal.token,
+          fileVersionId: versionId,
+          fileId: fileId,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        alert(errData.error || 'Failed to fetch preview');
+        return;
+      }
+
+      const { signedUrl } = await res.json();
+      setPreviewUrl(signedUrl);
+      setPreviewMimeType(mimeType);
+      setPreviewFileName(fileName);
+      setPreviewModalOpen(true);
+    } catch (err: any) {
+      alert(err.message || 'Error loading preview');
+    } finally {
+      setPreviewLoadingFileId(null);
+    }
+  }
+
+  async function handleRetryPreview(versionId: string, fileId: string) {
+    try {
+      const formData = new FormData();
+      formData.append('dealId', currentDeal.id);
+      formData.append('fileVersionId', versionId);
+      formData.append('fileId', fileId);
+
+      const res = await fetch('/api/files/preview-upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (res.ok) {
+        setLocalFileVersions((prev) =>
+          prev.map((v) => {
+            if (v.id === versionId) {
+              return {
+                ...v,
+                files: v.files.map((f: any) =>
+                  f.id === fileId ? { ...f, previewStatus: 'processing' } : f
+                ),
+              };
+            }
+            return v;
+          })
+        );
+      } else {
+        alert('Failed to trigger preview retry.');
+      }
+    } catch (err: any) {
+      alert('Error retrying preview: ' + err.message);
+    }
+  }
+
   const [activeTab, setActiveTab] = useState('overview');
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -164,43 +307,12 @@ export function DealWorkspace({
           </div>
           <div className="flex items-center gap-2">
             <DealStatusBadge status={currentDeal.status} />
-
-            <Dialog open={closeDialogOpen} onOpenChange={setCloseDialogOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20">
-                  Close Deal
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Close and permanently delete this Deal?</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-3 py-2 text-sm text-muted-foreground">
-                  <p className="text-foreground font-medium">
-                    This action cannot be undone. Closing this Deal will permanently delete:
-                  </p>
-                  <ul className="list-disc pl-5 space-y-1 text-xs text-muted-foreground">
-                    <li>The Deal workspace and all access links</li>
-                    <li>All chat messages and conversations</li>
-                    <li>Timeline events and activity history</li>
-                    <li>All deliverables, file versions, and uploaded storage files</li>
-                  </ul>
-                  {closeError && (
-                    <p className="text-xs text-destructive bg-destructive/10 p-2.5 rounded-md">
-                      {closeError}
-                    </p>
-                  )}
-                </div>
-                <DialogFooter className="gap-2 sm:gap-0">
-                  <Button variant="outline" onClick={() => setCloseDialogOpen(false)} disabled={closing}>
-                    Cancel
-                  </Button>
-                  <Button variant="destructive" onClick={handleCloseDeal} disabled={closing}>
-                    {closing ? 'Deleting Deal...' : 'Close & Delete'}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+            <Link href={`/deals/${currentDeal.id}/settings`}>
+              <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5">
+                <Settings className="h-3.5 w-3.5" />
+                Settings
+              </Button>
+            </Link>
           </div>
         </div>
 
@@ -247,8 +359,8 @@ export function DealWorkspace({
                 className="h-8 gap-1.5 text-xs font-medium"
                 onClick={() => window.open(canonicalUrl, '_blank')}
               >
-                <ExternalLink className="h-3.5 w-3.5" />
-                Open Client View
+                <Eye className="h-3.5 w-3.5" />
+                Preview Client View
               </Button>
             </div>
           </div>
@@ -271,7 +383,6 @@ export function DealWorkspace({
             <TabsTrigger value="files">Files</TabsTrigger>
             <TabsTrigger value="payments">Payments</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
         </div>
 
@@ -282,7 +393,7 @@ export function DealWorkspace({
           <ChatTab deal={currentDeal} messages={messages} proposals={proposals} creatorName={creatorName} isClosed={isClosed} />
         </TabsContent>
         <TabsContent value="files" className="mt-4">
-          <FilesTab deal={currentDeal} deliverables={deliverables} fileVersions={fileVersions} changeRequests={changeRequests} isClosed={isClosed} />
+          <FilesTab deal={currentDeal} deliverables={deliverables} fileVersions={localFileVersions} changeRequests={changeRequests} isClosed={isClosed} handleViewPreview={handleViewPreview} handleRetryPreview={handleRetryPreview} previewLoadingFileId={previewLoadingFileId} />
         </TabsContent>
         <TabsContent value="payments" className="mt-4">
           <PaymentsTab deal={currentDeal} payments={payments} />
@@ -290,10 +401,53 @@ export function DealWorkspace({
         <TabsContent value="activity" className="mt-4">
           <ActivityTab events={events} />
         </TabsContent>
-        <TabsContent value="settings" className="mt-4">
-          <SettingsTab deal={currentDeal} onUpdateDeal={setCurrentDeal} fileVersions={fileVersions} />
-        </TabsContent>
       </Tabs>
+
+      {/* Secure File Preview Modal for Creator */}
+      <Dialog open={previewModalOpen} onOpenChange={setPreviewModalOpen}>
+        <DialogContent className="max-w-3xl w-[90vw] max-h-[85vh] flex flex-col p-4">
+          <DialogHeader className="pb-2 border-b">
+            <DialogTitle className="text-base truncate">Preview — {previewFileName}</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto flex items-center justify-center p-2 bg-muted/20 min-h-[40vh] max-h-[60vh] rounded-md relative">
+            {previewMimeType.startsWith('image/') ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={previewUrl}
+                alt={previewFileName}
+                className="max-w-full max-h-[55vh] object-contain rounded shadow-sm select-none pointer-events-none"
+              />
+            ) : previewMimeType === 'application/pdf' ? (
+              <iframe
+                src={previewUrl}
+                title={previewFileName}
+                className="w-full h-[55vh] border-0 rounded shadow-sm"
+              />
+            ) : previewMimeType.startsWith('video/') ? (
+              <video
+                src={previewUrl}
+                controls
+                controlsList="nodownload"
+                className="max-w-full max-h-[55vh] object-contain rounded shadow-sm"
+              />
+            ) : (
+              <div className="text-center py-12 space-y-2">
+                <p className="text-sm font-semibold text-foreground">Preview unavailable</p>
+                <p className="text-xs text-muted-foreground">Watermarked preview is still processing or has failed.</p>
+              </div>
+            )}
+          </div>
+          <div className="pt-3 border-t flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-500 font-medium">
+              <Lock className="h-3.5 w-3.5" />
+              <span>Preview mode — Watermarked view of the deliverable file.</span>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => setPreviewModalOpen(false)}>
+              Close Preview
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -974,12 +1128,18 @@ function FilesTab({
   fileVersions,
   changeRequests,
   isClosed,
+  handleViewPreview,
+  handleRetryPreview,
+  previewLoadingFileId,
 }: {
   deal: Deal;
   deliverables: Deliverable[];
   fileVersions: FileVersion[];
   changeRequests: ChangeRequest[];
   isClosed?: boolean;
+  handleViewPreview: (versionId: string, fileId: string, fileName: string, mimeType: string) => Promise<void>;
+  handleRetryPreview: (versionId: string, fileId: string) => Promise<void>;
+  previewLoadingFileId: string | null;
 }) {
   const isPaid = deal.paymentStatus === 'paid';
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -988,6 +1148,14 @@ function FilesTab({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+
+  const [localDeliverables, setLocalDeliverables] = useState<Deliverable[]>([]);
+  
+  useEffect(() => {
+    setLocalDeliverables(deliverables.filter(d => !d.name.startsWith('[DELETED]')));
+  }, [deliverables]);
+
+
 
 
 
@@ -1126,7 +1294,7 @@ function FilesTab({
                   <DialogTitle>Upload Deliverable Version</DialogTitle>
                 </DialogHeader>
                 <form onSubmit={handleUploadFile} className="space-y-4 pt-2">
-                  {deliverables.length > 0 && (
+                  {localDeliverables.length > 0 && (
                     <div className="space-y-1.5">
                       <Label className="text-xs">Select Deliverable</Label>
                       <select
@@ -1134,7 +1302,7 @@ function FilesTab({
                         value={selectedDeliverable}
                         onChange={(e) => setSelectedDeliverable(e.target.value)}
                       >
-                        {deliverables.map((del) => (
+                        {localDeliverables.map((del) => (
                           <option key={del.id} value={del.id}>
                             {del.name}
                           </option>
@@ -1178,19 +1346,21 @@ function FilesTab({
         </Card>
 
         {/* Deliverables with versions */}
-        {deliverables.length === 0 ? (
+        {localDeliverables.length === 0 ? (
           <Card>
             <CardContent>
               <EmptyState icon={FileCheck} title="No deliverables" description="No deliverables have been added to this deal yet." />
             </CardContent>
           </Card>
         ) : (
-          deliverables.map((del) => {
+          localDeliverables.map((del) => {
             const versions = fileVersions.filter((v) => v.deliverableId === del.id);
             return (
               <Card key={del.id}>
                 <CardHeader className="flex-row items-center justify-between space-y-0">
-                  <CardTitle className="text-base">{del.name}</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-base">{del.name}</CardTitle>
+                  </div>
                   <DeliverableStatusBadge status={isPaid || deal.status === 'completed' ? 'approved' : del.status} />
                 </CardHeader>
                 <CardContent>
@@ -1213,9 +1383,53 @@ function FilesTab({
                           </div>
                           {v.description && <p className="text-sm text-muted-foreground mb-2">{v.description}</p>}
                           <div className="space-y-1.5">
-                            {v.files.map((f) => (
-                              <FileCard key={f.id} file={f} locked={v.locked && !isPaid} />
-                            ))}
+                            {v.files.map((f: any) => {
+                              const isReplaced = f.deletionStatus === 'retention' || f.deletionStatus === 'deleted';
+                              if (isReplaced) return null; // do not show deleted/replaced files in creator active list
+                              return (
+                                <div key={f.id} className="flex items-center gap-2">
+                                  <div className="flex-1">
+                                    <FileCard file={f} locked={v.locked && !isPaid} />
+                                  </div>
+                                  {deal.previewEnabled && (
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      {f.previewStatus === 'ready' && f.previewPath && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="gap-1 text-xs text-primary border-primary/25 hover:bg-primary/5 hover:text-primary h-8 px-2.5"
+                                          onClick={() => handleViewPreview(v.id, f.id, f.name, f.previewType || 'image/jpeg')}
+                                          disabled={previewLoadingFileId === f.id}
+                                        >
+                                          <Eye className="h-3 w-3" />
+                                          {previewLoadingFileId === f.id ? '...' : 'Preview'}
+                                        </Button>
+                                      )}
+                                      {f.previewStatus === 'processing' && (
+                                        <span className="text-[10px] text-muted-foreground bg-muted/65 px-1.5 py-1.5 rounded animate-pulse">
+                                          Processing...
+                                        </span>
+                                      )}
+                                      {f.previewStatus === 'failed' && (
+                                        <div className="flex items-center gap-1">
+                                          <span className="text-[10px] text-red-500 bg-red-500/10 px-1.5 py-1.5 rounded">
+                                            Failed
+                                          </span>
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="h-8 w-8 p-0"
+                                            onClick={() => handleRetryPreview(v.id, f.id)}
+                                          >
+                                            <RefreshCw className="h-3 w-3" />
+                                          </Button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                           {!isPaid && v.locked && (
                             <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -1366,222 +1580,6 @@ function ActivityTab({ events }: { events: DealEvent[] }) {
   );
 }
 
-function SettingsTab({
-  deal,
-  onUpdateDeal,
-  fileVersions,
-}: {
-  deal: Deal;
-  onUpdateDeal: (deal: Deal) => void;
-  fileVersions: FileVersion[];
-}) {
-  const router = useRouter();
-  const [previewEnabled, setPreviewEnabled] = useState(deal.previewEnabled || false);
-  const [updating, setUpdating] = useState(false);
-  const [statusText, setStatusText] = useState('');
-  const [progressText, setProgressText] = useState('');
-
-  // Sync state if deal updates
-  useEffect(() => {
-    setPreviewEnabled(deal.previewEnabled || false);
-  }, [deal]);
-
-  async function handleTogglePreview(checked: boolean) {
-    setUpdating(true);
-    setStatusText('Updating setting...');
-    setProgressText('');
-    try {
-      const supabase = createClient();
-      
-      const serializedDesc = serializeDescription(deal.description, checked);
-      // Update setting in Supabase deals table
-      const { error: updateErr } = await supabase
-        .from('deals')
-        .update({ description: serializedDesc })
-        .eq('id', deal.id);
-
-      if (updateErr) throw updateErr;
-
-      // Update local state
-      onUpdateDeal({ ...deal, previewEnabled: checked, description: serializedDesc || '' });
-      setPreviewEnabled(checked);
-      setStatusText('Setting saved.');
-
-      // If checked is true, do retrospective preview generation for supported files
-      if (checked) {
-        setStatusText('Checking for files needing previews...');
-        // Find supported files without previews
-        const filesToProcess: { versionId: string; fileId: string; fileItem: any }[] = [];
-        
-        for (const version of fileVersions) {
-          const files = Array.isArray(version.files) ? version.files : [];
-          for (const f of files) {
-            const ext = f.name.split('.').pop()?.toLowerCase() || '';
-            const isImage = (f.type || '').startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp'].includes(ext);
-            const isPdf = f.type === 'application/pdf' || ext === 'pdf';
-            const isVideo = (f.type || '').startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext);
-            const isSupported = isImage || isPdf || isVideo;
-            
-            // If supported and does not have a ready preview
-            if (isSupported && (!f.previewPath || f.previewStatus !== 'ready') && f.deletionStatus !== 'deleted') {
-              filesToProcess.push({
-                versionId: version.id,
-                fileId: f.id,
-                fileItem: f,
-              });
-            }
-          }
-        }
-
-        if (filesToProcess.length === 0) {
-          setStatusText('Preview ready');
-          setUpdating(false);
-          return;
-        }
-
-        let completedCount = 0;
-        setStatusText(`Generating previews... 0 of ${filesToProcess.length} files completed`);
-
-        for (const target of filesToProcess) {
-          try {
-            setProgressText(`Processing: ${target.fileItem.name}...`);
-
-            const targetExt = target.fileItem.name.split('.').pop()?.toLowerCase() || '';
-            const targetIsVideo = (target.fileItem.type || '').startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(targetExt);
-
-            if (targetIsVideo) {
-              const formData = new FormData();
-              formData.append('dealId', deal.id);
-              formData.append('fileVersionId', target.versionId);
-              formData.append('fileId', target.fileId);
-
-              const uploadRes = await fetch('/api/files/preview-upload', {
-                method: 'POST',
-                body: formData,
-              });
-
-              if (!uploadRes.ok) throw new Error('Failed to start server-side video preview generation');
-
-              completedCount++;
-              setStatusText(`Generating previews... ${completedCount} of ${filesToProcess.length} files completed`);
-              continue;
-            }
-            
-            // 1. Get secure signed download URL for original file
-            const signedRes = await fetch('/api/files/signed-url', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                dealId: deal.id,
-                filePath: target.fileItem.path,
-                isCreator: true,
-              }),
-            });
-
-            if (!signedRes.ok) throw new Error('Failed to get download URL');
-            const { signedUrl } = await signedRes.json();
-            if (!signedUrl) throw new Error('Download URL not returned');
-
-            // 2. Fetch the file data
-            const fileDataRes = await fetch(signedUrl);
-            if (!fileDataRes.ok) throw new Error('Failed to download file');
-            const blob = await fileDataRes.blob();
-            const fileObj = new File([blob], target.fileItem.name, { type: target.fileItem.type });
-
-            // 3. Generate preview client-side
-            const previewBlob = await generateClientPreview(fileObj);
-            if (!previewBlob) throw new Error('Failed to generate preview copy');
-
-            // 4. Upload preview
-            const originalExt = fileObj.name.split('.').pop()?.toLowerCase();
-            let previewExt = originalExt || 'jpg';
-            if (previewBlob.type === 'image/jpeg' && originalExt !== 'jpg' && originalExt !== 'jpeg') {
-              previewExt = 'jpg';
-            }
-            const originalBaseName = fileObj.name.substring(0, fileObj.name.lastIndexOf('.')) || fileObj.name;
-            const previewName = `preview-${originalBaseName}.${previewExt}`;
-
-            const formData = new FormData();
-            formData.append('dealId', deal.id);
-            formData.append('fileVersionId', target.versionId);
-            formData.append('fileId', target.fileId);
-            formData.append('previewFile', new File([previewBlob], previewName, { type: previewBlob.type }));
-
-            const uploadRes = await fetch('/api/files/preview-upload', {
-              method: 'POST',
-              body: formData,
-            });
-
-            if (!uploadRes.ok) throw new Error('Failed to upload preview file');
-            
-            completedCount++;
-            setStatusText(`Generating previews... ${completedCount} of ${filesToProcess.length} files completed`);
-          } catch (fileErr: any) {
-            console.error(`Failed to process preview for ${target.fileItem.name}:`, fileErr);
-            completedCount++;
-            setStatusText(`Generating previews... ${completedCount} of ${filesToProcess.length} files completed`);
-          }
-        }
-
-        setStatusText('Preview ready');
-        setProgressText('');
-        // Trigger a reload or state refresh
-        router.refresh();
-      } else {
-        setStatusText('');
-        setProgressText('');
-      }
-    } catch (err: any) {
-      console.error('Error toggling preview settings:', err);
-      setStatusText(`Error: ${err.message || 'Failed to update settings'}`);
-    } finally {
-      setUpdating(false);
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Deal Workspace Settings</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <span className="text-sm font-medium">Client File Preview</span>
-              <p className="text-xs text-muted-foreground pr-4">
-                Let clients inspect watermarked previews before payment.
-              </p>
-            </div>
-            <button
-              type="button"
-              disabled={updating}
-              onClick={() => handleTogglePreview(!previewEnabled)}
-              className={cn(
-                "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50",
-                previewEnabled ? "bg-primary" : "bg-muted"
-              )}
-            >
-              <span
-                className={cn(
-                  "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-background shadow ring-0 transition duration-200 ease-in-out",
-                  previewEnabled ? "translate-x-5" : "translate-x-0"
-                )}
-              />
-            </button>
-          </div>
-
-          {(statusText || progressText) && (
-            <div className="mt-3 pt-3 border-t border-border space-y-1 text-xs">
-              {statusText && <p className="font-semibold text-primary">{statusText}</p>}
-              {progressText && <p className="text-muted-foreground">{progressText}</p>}
-            </div>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 const loadPdfLib = () => {
   return new Promise((resolve, reject) => {

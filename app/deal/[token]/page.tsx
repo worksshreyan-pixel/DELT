@@ -57,6 +57,7 @@ export default function ClientDealPage() {
   const [dealMeta, setDealMeta] = useState<{ title?: string; clientEmail?: string; creatorName?: string } | null>(null);
   const [dealNotFound, setDealNotFound] = useState(false);
   const [loadingDeal, setLoadingDeal] = useState(true);
+  const [viewerRole, setViewerRole] = useState<'client' | 'creator'>('client');
   const [verified, setVerified] = useState(false);
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
@@ -109,6 +110,7 @@ export default function ClientDealPage() {
         if (json.authorized && json.deal) {
           setDeal(json.deal);
           setEmail(json.clientEmail || json.deal.clientEmail || '');
+          setViewerRole(json.role || 'client');
           setVerified(true);
         } else {
           setDealMeta({
@@ -240,6 +242,7 @@ export default function ClientDealPage() {
       if (serverVerifyJson.deal) {
         setDeal(serverVerifyJson.deal);
       }
+      setViewerRole('client');
       setVerified(true);
     } catch (e: any) {
       console.error('OTP verification error:', e);
@@ -473,6 +476,7 @@ export default function ClientDealPage() {
       clientEmail={email}
       clientName={(deal as any).clientName || (deal as any).client_name || 'Client'}
       creatorName="Creator"
+      viewerRole={viewerRole}
     />
   );
 }
@@ -486,11 +490,13 @@ function ClientPortal({
   clientEmail,
   clientName,
   creatorName,
+  viewerRole = 'client',
 }: {
   deal: Deal;
   clientEmail: string;
   clientName: string;
   creatorName: string;
+  viewerRole?: 'client' | 'creator';
 }) {
   const [currentDeal, setCurrentDeal] = useState<Deal>(deal);
   const [messages, setMessages] = useState<DealMessage[]>([]);
@@ -498,6 +504,8 @@ function ClientPortal({
   const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
   const [fileVersions, setFileVersions] = useState<FileVersion[]>([]);
   const [events, setEvents] = useState<DealEvent[]>([]);
+
+  const isReadOnly = viewerRole === 'creator';
 
   const [input, setInput] = useState('');
   const [proposalOpen, setProposalOpen] = useState(false);
@@ -1195,6 +1203,12 @@ function ClientPortal({
         </div>
       </header>
 
+      {isReadOnly && (
+        <div className="bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60 p-3 text-center text-xs text-amber-800 dark:text-amber-300 font-medium">
+          Creator Preview: Client chat and actions are read-only in this view.
+        </div>
+      )}
+
       <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">
         {/* Deal header */}
         <div className="mb-6">
@@ -1350,7 +1364,7 @@ function ClientPortal({
                   </div>
                   <div className="mt-4 border-t border-border pt-4">
                     <div className="flex items-end gap-2">
-                      {!isClosed && (
+                      {!isClosed && !isReadOnly && (
                         <Dialog open={proposalOpen} onOpenChange={(open) => { setProposalOpen(open); if (!open) setActiveProposal(null); }}>
                           <DialogTrigger asChild>
                             <Button variant="outline" size="sm" className="shrink-0 gap-1.5">
@@ -1462,15 +1476,15 @@ function ClientPortal({
                       )}
 
                       <Textarea
-                        placeholder={isClosed ? "Deal is closed (read-only chat history)" : "Type a message to your creator..."}
+                        placeholder={isReadOnly ? "Creator Preview (read-only client chat)" : isClosed ? "Deal is closed (read-only chat history)" : "Type a message to your creator..."}
                         value={input}
-                        disabled={isClosed}
+                        disabled={isClosed || isReadOnly}
                         onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !isClosed) { e.preventDefault(); sendMessage(); } }}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !isClosed && !isReadOnly) { e.preventDefault(); sendMessage(); } }}
                         className="min-h-[40px] max-h-24 resize-none"
                         rows={1}
                       />
-                      <Button size="icon" onClick={sendMessage} className="shrink-0" disabled={isClosed || !input.trim()}>
+                      <Button size="icon" onClick={sendMessage} className="shrink-0" disabled={isClosed || isReadOnly || !input.trim()}>
                         <Send className="h-4 w-4" />
                       </Button>
                     </div>
@@ -1602,7 +1616,7 @@ function ClientPortal({
               )}
 
               {/* Approval & Changes Bar */}
-              {!isClosed && (
+              {!isClosed && !isReadOnly && (
                 <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
                   <Dialog open={changesOpen} onOpenChange={setChangesOpen}>
                     <DialogTrigger asChild>
@@ -1662,7 +1676,12 @@ function ClientPortal({
                     </span>
                   </div>
 
-                  {!isPaid && !isClosed ? (
+                  {!isPaid && !isClosed && isReadOnly ? (
+                    <Button className="w-full gap-2 mt-2" disabled>
+                      <CreditCard className="h-4 w-4" />
+                      Pay with Razorpay (Creator Preview)
+                    </Button>
+                  ) : !isPaid && !isClosed ? (
                     <Dialog open={paymentOpen} onOpenChange={setPaymentOpen}>
                       <DialogTrigger asChild>
                         <Button className="w-full gap-2 mt-2">

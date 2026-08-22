@@ -401,10 +401,6 @@ function CreateDealForm() {
           throw new Error(`Failed to register uploaded files: ${regErr.error || 'unknown error'}`);
         }
 
-        // If there is a video and preview is enabled, wait a few seconds to let processor run
-        if (hasVideo) {
-          await new Promise(resolve => setTimeout(resolve, 5000));
-        }
       }
 
       // Sync local reactive store
@@ -421,8 +417,7 @@ function CreateDealForm() {
         deliverables: data.deliverables,
       });
 
-      setCreatedDeal(deal);
-      setEmailStatus(json.emailResult || null);
+      router.push(`/deals/${deal.id}`);
     } catch (err: any) {
       console.error('Error creating deal:', err);
       setValidationError(err.message || 'Deal creation failed.');
@@ -1089,6 +1084,26 @@ async function generateClientPreview(file: File): Promise<Blob | null> {
 
           ctx.drawImage(img, 0, 0, width, height);
 
+          // Compute average luminance by drawing to a 1x1 canvas
+          let isDark = false;
+          try {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = 1;
+            tempCanvas.height = 1;
+            const tempCtx = tempCanvas.getContext('2d');
+            if (tempCtx) {
+              tempCtx.drawImage(img, 0, 0, 1, 1);
+              const pixel = tempCtx.getImageData(0, 0, 1, 1).data;
+              const r = pixel[0];
+              const g = pixel[1];
+              const b = pixel[2];
+              const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+              isDark = luminance < 127;
+            }
+          } catch (e) {
+            console.error('Failed to compute image luminance client-side:', e);
+          }
+
           ctx.save();
 
           // Calculate font size dynamically based on dimensions (responsive)
@@ -1097,7 +1112,7 @@ async function generateClientPreview(file: File): Promise<Blob | null> {
             Math.round(Math.min(width, height) * 0.045)
           );
 
-          ctx.strokeStyle = 'rgba(70, 70, 70, 0.35)'; // Hollow dark gray outline at 35% opacity
+          ctx.strokeStyle = isDark ? 'rgba(240, 240, 240, 0.35)' : 'rgba(70, 70, 70, 0.35)'; // Hollow outline at 35% opacity
           ctx.lineWidth = 2;
           ctx.font = `bold ${fontSize}px sans-serif`;
           ctx.textAlign = 'center';

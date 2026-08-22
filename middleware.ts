@@ -75,8 +75,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
-  // If already logged in and visiting login or signup
-  if (user && (pathname === '/login' || pathname === '/signup')) {
+  // If already logged in and visiting login, signup, or the root path
+  if (user && (pathname === '/login' || pathname === '/signup' || pathname === '/')) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
@@ -85,6 +85,7 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    '/',
     '/dashboard/:path*',
     '/deals/:path*',
     '/storage/:path*',

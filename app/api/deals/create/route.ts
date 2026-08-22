@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     timestamp: new Date().toISOString()
   }));
   try {
-    const supabase = createServerSupabaseClient();
+    const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {

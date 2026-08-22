@@ -4,15 +4,15 @@ import { createAdminClient } from '@/lib/supabase/admin';
 
 export async function POST(
   request: Request,
-  { params }: { params: { token: string } }
+  { params }: { params: Promise<{ token: string }> }
 ) {
   try {
-    const idOrToken = params.token;
+    const { token: idOrToken } = await params;
     if (!idOrToken) {
       return NextResponse.json({ error: 'Deal ID or token is required.' }, { status: 400 });
     }
 
-    const supabase = createServerSupabaseClient();
+    const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {

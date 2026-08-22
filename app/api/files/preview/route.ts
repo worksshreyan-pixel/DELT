@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     const creatorId = deal.creator_id;
 
     // Check creator session
-    const supabase = createServerSupabaseClient();
+    const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     // Check client session token

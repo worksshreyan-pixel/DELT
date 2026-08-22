@@ -6,10 +6,10 @@ import { parseDescription } from '@/lib/utils';
 
 export async function POST(
   request: Request,
-  { params }: { params: { token: string } }
+  { params }: { params: Promise<{ token: string }> }
 ) {
   try {
-    const token = params.token;
+    const { token } = await params;
     if (!token) {
       return NextResponse.json({ error: 'Deal token is required.' }, { status: 400 });
     }
@@ -42,7 +42,7 @@ export async function POST(
     const creatorId = dbDeal.creator_id;
 
     // 2. Check Supabase Auth user session from cookies
-    const supabase = createServerSupabaseClient();
+    const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     // 3. Check custom signed client session token from header

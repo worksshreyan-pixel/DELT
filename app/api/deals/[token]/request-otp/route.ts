@@ -3,10 +3,10 @@ import { requestDealOtp } from '@/lib/otp';
 
 export async function POST(
   request: Request,
-  { params }: { params: { token: string } }
+  { params }: { params: Promise<{ token: string }> }
 ) {
   try {
-    const token = params.token;
+    const { token } = await params;
     if (!token) {
       return NextResponse.json({ error: 'Deal token is required.' }, { status: 400 });
     }

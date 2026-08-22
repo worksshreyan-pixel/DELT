@@ -5,7 +5,7 @@ import { parseDescription } from '@/lib/utils';
 
 export async function POST(request: Request) {
   try {
-    const supabase = createServerSupabaseClient();
+    const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {

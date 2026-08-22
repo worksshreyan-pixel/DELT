@@ -25,9 +25,9 @@ if (process.platform === 'win32') {
 import { generateVideoPreview } from '../lib/video-preview';
 import { createAdminClient } from '../lib/supabase/admin';
 
-const dealId = 'f70d8331-059f-4ec5-a5a6-cdf491de7336';
-const fileVersionId = 'dbfa836d-c66b-4dfc-8c6e-758cd6623d03';
-const fileId = 'f_1786806550124';
+const dealId = '9d3ac8e7-9cd3-412f-863c-9ec2c1b1dfad';
+const fileVersionId = '6d861ab3-acf7-405b-9673-35f84087d5b1';
+const fileId = 'f_1786985889005_8envs';
 
 async function run() {
   const admin = createAdminClient();

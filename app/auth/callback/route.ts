@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   const type = searchParams.get('type');
   const next = searchParams.get('next') || '/dashboard';
 
-  const supabase = createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient();
 
   // 1. PKCE Code Exchange
   if (code) {

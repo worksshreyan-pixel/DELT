@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Menu, X } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { createClient } from '@/lib/supabase/client';
 
 const navLinks = [
   { href: '/how-it-works', label: 'How it works' },
@@ -18,6 +19,22 @@ const navLinks = [
 export function MarketingNav() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setIsAuthenticated(!!session);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAuthenticated(!!session);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-background/80 backdrop-blur-md">
@@ -42,12 +59,22 @@ export function MarketingNav() {
           </nav>
         </div>
         <div className="hidden items-center gap-2 md:flex">
-          <Link href="/login">
-            <Button variant="ghost" size="sm">Log in</Button>
-          </Link>
-          <Link href="/signup">
-            <Button size="sm">Get started</Button>
-          </Link>
+          {isAuthenticated === null ? (
+            <div className="w-32 h-8 bg-muted/40 animate-pulse rounded-md" />
+          ) : isAuthenticated ? (
+            <Link href="/dashboard">
+              <Button size="sm">Dashboard</Button>
+            </Link>
+          ) : (
+            <>
+              <Link href="/login">
+                <Button variant="ghost" size="sm">Log in</Button>
+              </Link>
+              <Link href="/signup">
+                <Button size="sm">Get started</Button>
+              </Link>
+            </>
+          )}
         </div>
         <button
           className="flex h-9 w-9 items-center justify-center rounded-md md:hidden"
@@ -74,12 +101,22 @@ export function MarketingNav() {
               </Link>
             ))}
             <div className="flex gap-2 mt-2">
-              <Link href="/login" className="flex-1" onClick={() => setMobileOpen(false)}>
-                <Button variant="outline" size="sm" className="w-full">Log in</Button>
-              </Link>
-              <Link href="/signup" className="flex-1" onClick={() => setMobileOpen(false)}>
-                <Button size="sm" className="w-full">Get started</Button>
-              </Link>
+              {isAuthenticated === null ? (
+                <div className="w-full h-8 bg-muted/40 animate-pulse rounded-md" />
+              ) : isAuthenticated ? (
+                <Link href="/dashboard" className="flex-1" onClick={() => setMobileOpen(false)}>
+                  <Button size="sm" className="w-full">Dashboard</Button>
+                </Link>
+              ) : (
+                <>
+                  <Link href="/login" className="flex-1" onClick={() => setMobileOpen(false)}>
+                    <Button variant="outline" size="sm" className="w-full">Log in</Button>
+                  </Link>
+                  <Link href="/signup" className="flex-1" onClick={() => setMobileOpen(false)}>
+                    <Button size="sm" className="w-full">Get started</Button>
+                  </Link>
+                </>
+              )}
             </div>
           </nav>
         </div>

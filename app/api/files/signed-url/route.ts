@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     }
 
     if (isUpload) {
-      const supabase = createServerSupabaseClient();
+      const supabase = await createServerSupabaseClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -77,7 +77,7 @@ export async function POST(request: Request) {
     const creatorId = deal.creator_id;
 
     // Check creator session
-    const supabase = createServerSupabaseClient();
+    const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     // Check client session token

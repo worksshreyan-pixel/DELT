@@ -12,10 +12,10 @@ function maskEmail(email: string): string {
 
 export async function POST(
   request: Request,
-  { params }: { params: { token: string } }
+  { params }: { params: Promise<{ token: string }> }
 ) {
   try {
-    const token = params.token;
+    const { token } = await params;
     if (!token) {
       return NextResponse.json({ error: 'Token is required' }, { status: 400 });
     }
