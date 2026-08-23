@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -418,30 +418,104 @@ export function DealSettings({
     if (!file) return;
     setReplacingFileId(fileId);
     try {
-      const formData = new FormData();
-      formData.append('dealId', currentDeal.id);
-      formData.append('deliverableId', deliverableId);
-      formData.append('fileId', fileId);
-      formData.append('file', file);
+      // Step 1: Get a signed upload URL for the main file from the server
+      const initRes = await fetch('/api/files/replace/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dealId: currentDeal.id,
+          deliverableId,
+          fileId,
+          fileName: file.name,
+          fileSize: file.size,
+          isPreview: false,
+        }),
+      });
 
-      const previewBlob = await generateClientPreview(file);
-      if (previewBlob) {
-        const originalExt = file.name.split('.').pop()?.toLowerCase();
-        let previewExt = originalExt || 'jpg';
-        if (previewBlob.type === 'image/jpeg' && originalExt !== 'jpg' && originalExt !== 'jpeg') {
-          previewExt = 'jpg';
-        }
-        const previewName = file.name.replace(/\.[^.]+$/, `-preview.${previewExt}`);
-        formData.append('previewFile', new File([previewBlob], previewName, { type: previewBlob.type }));
+      if (!initRes.ok) {
+        const initErr = await initRes.json().catch(() => ({}));
+        throw new Error(initErr.error || 'Failed to initialize file upload');
       }
 
+      const { signedUrl, filePath } = await initRes.json();
+
+      // Step 2: Upload main file directly to Supabase Storage (no Vercel proxy)
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', signedUrl, true);
+        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload failed: HTTP ${xhr.status}`)));
+        xhr.onerror = () => reject(new Error('Network error during file upload'));
+        xhr.send(file);
+      });
+
+      // Step 3: Optionally generate and upload a client-side preview
+      let previewPath: string | undefined;
+      let previewType: string | undefined;
+
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
+      const isVideo = (file.type || '').startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext);
+
+      if (!isVideo) {
+        const previewBlob = await generateClientPreview(file);
+        if (previewBlob) {
+          const originalExt = file.name.split('.').pop()?.toLowerCase();
+          let previewExt = originalExt || 'jpg';
+          if (previewBlob.type === 'image/jpeg' && originalExt !== 'jpg' && originalExt !== 'jpeg') {
+            previewExt = 'jpg';
+          }
+          const previewName = file.name.replace(/\.[^.]+$/, `-preview.${previewExt}`);
+
+          const initPrevRes = await fetch('/api/files/preview-upload/init', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              dealId: currentDeal.id,
+              fileVersionId: versionId,
+              fileId,
+              previewFileName: previewName,
+              previewFileSize: previewBlob.size,
+            }),
+          });
+
+          if (initPrevRes.ok) {
+            const { signedUrl: prevSignedUrl, previewPath: prevPath } = await initPrevRes.json();
+            const uploadedPreview = await new Promise<boolean>((resolve) => {
+              const xhr = new XMLHttpRequest();
+              xhr.open('PUT', prevSignedUrl, true);
+              xhr.setRequestHeader('Content-Type', previewBlob.type || 'application/octet-stream');
+              xhr.onload = () => resolve(xhr.status >= 200 && xhr.status < 300);
+              xhr.onerror = () => resolve(false);
+              xhr.send(previewBlob);
+            });
+            if (uploadedPreview) {
+              previewPath = prevPath;
+              previewType = previewBlob.type;
+            }
+          }
+        }
+      }
+
+      // Step 4: Register metadata with the server (JSON only — no file binary)
       const res = await fetch('/api/files/replace', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dealId: currentDeal.id,
+          deliverableId,
+          fileId,
+          newFileName: file.name,
+          newFileType: file.type,
+          newFileSize: file.size,
+          newFilePath: filePath,
+          previewPath,
+          previewType,
+          previewStatus: previewPath ? 'ready' : undefined,
+        }),
       });
 
       if (!res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Failed to replace file.');
       }
 

@@ -246,14 +246,14 @@ export function DealWorkspace({
 
   async function handleRetryPreview(versionId: string, fileId: string) {
     try {
-      const formData = new FormData();
-      formData.append('dealId', currentDeal.id);
-      formData.append('fileVersionId', versionId);
-      formData.append('fileId', fileId);
-
       const res = await fetch('/api/files/preview-upload', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dealId: currentDeal.id,
+          fileVersionId: versionId,
+          fileId,
+        }),
       });
 
       if (res.ok) {
