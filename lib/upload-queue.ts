@@ -13,6 +13,7 @@ export interface UploadTask {
   percentage: number;
   status: 'waiting' | 'uploading' | 'completed' | 'failed';
   error?: string;
+  previewStatus?: 'waiting' | 'processing' | 'ready' | 'failed' | 'unavailable';
 }
 
 export interface UploadBatch {
@@ -77,6 +78,7 @@ class UploadQueueManager {
         totalBytes: file.size,
         percentage: 0,
         status: 'waiting',
+        previewStatus: previewEnabled ? 'waiting' : undefined,
       };
       return task;
     });
@@ -231,8 +233,16 @@ class UploadQueueManager {
           }
         } catch (prevErr) {
           console.error('Client-side preview generation failed:', prevErr);
+          previewStatus = 'failed';
         }
       }
+
+      if (batch.previewEnabled && !isVideo && previewStatus !== 'ready' && previewStatus !== 'failed') {
+        previewStatus = 'unavailable';
+      }
+
+      // Update the task's previewStatus so UI can reflect it post-upload
+      task.previewStatus = previewStatus as any;
 
       // Add to batch completed items
       const fileItem = {

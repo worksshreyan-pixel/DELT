@@ -1035,7 +1035,8 @@ function ClientPortal({
     }
   }
 
-  async function handleCompletePayment() {
+  async function handleCompletePayment(e?: React.MouseEvent) {
+    if (e) e.preventDefault();
     setPaying(true);
 
     try {
@@ -1117,6 +1118,7 @@ function ClientPortal({
           theme: {
             color: '#0F172A',
           },
+          callback_url: undefined, // Explicitly prevent redirect
           handler: async function (response: any) {
             try {
               setPaying(true);
@@ -1155,6 +1157,7 @@ function ClientPortal({
             }
           },
           modal: {
+            escape: false,
             ondismiss: function () {
               setPaying(false);
             },

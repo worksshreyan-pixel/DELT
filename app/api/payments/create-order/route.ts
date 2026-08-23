@@ -42,8 +42,9 @@ export async function POST(request: Request) {
       : false;
 
     const isCreator = user && user.id === deal.creator_id;
-    console.log('[PAYMENT_AUTH_OK]');
     const isClient = (user && user.email?.toLowerCase() === deal.client_email?.toLowerCase()) || hasValidClientToken;
+
+    console.log(`[PAYMENT_AUTH] dealId=${deal.id} user=${user?.email || 'none'} isCreator=${isCreator} isClient=${isClient} hasClientSessionHeader=${!!clientSessionHeader} hasValidClientToken=${hasValidClientToken}`);
 
     if (isCreator) {
       console.log('[PAYMENT_AUTH_ERROR] Creator attempted payment');

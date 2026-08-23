@@ -185,6 +185,9 @@ export async function generateVideoPreview(dealId: string, fileVersionId: string
 
     const processorUrl = process.env.VIDEO_PROCESSOR_URL;
     const secret = process.env.VIDEO_PROCESSOR_SECRET;
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    console.log(`[VIDEO_PROCESSOR_CONFIG] environment=${isProduction ? 'production' : 'development'} processorUrl_configured=${!!processorUrl} secret_configured=${!!secret}`);
 
     if (processorUrl) {
       if (!secret) {
@@ -192,7 +195,7 @@ export async function generateVideoPreview(dealId: string, fileVersionId: string
         throw new Error('[VIDEO_PROCESSOR] Configuration error: VIDEO_PROCESSOR_SECRET is missing.');
       }
 
-      console.log(`[VIDEO_PROCESSOR] configured=true processorUrl=${sanitizeString(processorUrl)}`);
+      console.log(`[VIDEO_PROCESSOR] Using external processor. url=${sanitizeString(processorUrl)}`);
 
       const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       console.log(`[VIDEO_PROCESSOR] Forwarding request. requestId=${requestId} dealId=${dealId} fileId=${fileId} processorUrl=${sanitizeString(processorUrl)}`);

@@ -1198,13 +1198,21 @@ function FilesTab({
   const [activeTasks, setActiveTasks] = useState<UploadTask[]>([]);
 
   useEffect(() => {
+    let prevCompletedCount = 0;
     return uploadQueue.subscribe((tasks) => {
-      setActiveTasks(tasks.filter((t) => t.dealId === deal.id));
+      const dealTasks = tasks.filter((t) => t.dealId === deal.id);
+      setActiveTasks(dealTasks);
+      
+      const currentCompletedCount = dealTasks.filter(t => t.status === 'completed' || t.status === 'failed').length;
+      if (currentCompletedCount > prevCompletedCount) {
+        window.dispatchEvent(new CustomEvent('delt-files-uploaded', { detail: { dealId: deal.id } }));
+      }
+      prevCompletedCount = currentCompletedCount;
     });
   }, [deal.id]);
 
   const runningTasks = activeTasks.filter(
-    (t) => t.status === 'uploading' || t.status === 'waiting' || t.status === 'failed'
+    (t) => t.status === 'uploading' || t.status === 'waiting' || t.status === 'failed' || (t.status === 'completed' && (t.previewStatus === 'processing' || t.previewStatus === 'waiting'))
   );
 
   useEffect(() => {
@@ -1321,20 +1329,32 @@ function FilesTab({
                     <span className="truncate max-w-[250px] pr-6">{task.fileName}</span>
                     {task.status === 'failed' ? (
                       <span className="text-destructive font-semibold">Failed</span>
+                    ) : task.status === 'completed' && task.previewStatus ? (
+                      <span className="text-muted-foreground">
+                        {task.previewStatus === 'processing' ? 'Generating preview...' : 
+                         task.previewStatus === 'ready' ? 'Preview ready ✓' : 
+                         task.previewStatus === 'failed' || task.previewStatus === 'unavailable' ? 'Preview unavailable ⚠' : 'Upload complete ✓'}
+                      </span>
                     ) : (
                       <span className="text-muted-foreground">{task.percentage}%</span>
                     )}
                   </div>
+                  
                   {task.status === 'failed' ? (
                     <p className="text-[10px] text-destructive mt-0.5">{task.error || 'Upload error'}</p>
-                  ) : (
+                  ) : task.status === 'completed' && task.previewStatus === 'processing' ? (
+                    <div className="mt-1 flex items-center text-[10px] text-primary/80 animate-pulse">
+                      Processing video preview...
+                    </div>
+                  ) : task.status !== 'completed' ? (
                     <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden mt-1">
                       <div
                         className="bg-primary h-full transition-all duration-200"
                         style={{ width: `${task.percentage}%` }}
                       />
                     </div>
-                  )}
+                  ) : null}
+
                   {task.status === 'failed' && (
                     <button
                       type="button"
