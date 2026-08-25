@@ -231,7 +231,7 @@ export async function verifySignupOtp(params: {
 
   const matches =
     expectedBuffer.length === actualBuffer.length &&
-    crypto.timingSafeEqual(expectedBuffer, actualBuffer);
+    crypto.timingSafeEqual(expectedBuffer as unknown as Uint8Array, actualBuffer as unknown as Uint8Array);
 
   if (!matches) {
     otpEntry.attempts += 1;
@@ -752,7 +752,7 @@ export async function verifyDealOtp(
 
   const matches =
     expectedBuffer.length === actualBuffer.length &&
-    crypto.timingSafeEqual(expectedBuffer, actualBuffer);
+    crypto.timingSafeEqual(expectedBuffer as unknown as Uint8Array, actualBuffer as unknown as Uint8Array);
 
   if (!matches) {
     const newAttempts = (activeOtp.attempts || 0) + 1;
@@ -885,7 +885,7 @@ export function verifyClientSessionToken(
   const sigBuffer = Buffer.from(signature);
   const expBuffer = Buffer.from(expectedSignature);
 
-  if (sigBuffer.length !== expBuffer.length || !crypto.timingSafeEqual(sigBuffer, expBuffer)) {
+  if (sigBuffer.length !== expBuffer.length || !crypto.timingSafeEqual(sigBuffer as unknown as Uint8Array, expBuffer as unknown as Uint8Array)) {
     return false;
   }
 
