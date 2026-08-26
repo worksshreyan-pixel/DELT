@@ -108,7 +108,7 @@ function getWatermarkFilter(isDark: boolean): string {
   const hasLocalFont = fs.existsSync(localFontPath);
   const drawtextFilters: string[] = [];
 
-  const fontColor = isDark ? '0xFFFFFF@0.0' : '0x464646@0.0';
+  const fontColor = isDark ? '0xFFFFFF@0.35' : '0x464646@0.35';
   const borderColor = isDark ? '0xDDDDDD@0.35' : '0x464646@0.35';
 
   for (let y = 30; y < 480; y += stepY) {
@@ -183,8 +183,8 @@ export async function generateVideoPreview(dealId: string, fileVersionId: string
       .update({ files: filesWithProcessing })
       .eq('id', fileVersionId);
 
-    const processorUrl = process.env.VIDEO_PROCESSOR_URL;
-    const secret = process.env.VIDEO_PROCESSOR_SECRET;
+    const processorUrl = (process.env.VIDEO_PROCESSOR_URL || '').trim();
+    const secret = (process.env.VIDEO_PROCESSOR_SECRET || '').trim().replace(/^["']|["']$/g, '');
     const isProduction = process.env.NODE_ENV === 'production';
 
     console.log(`[VIDEO_PROCESSOR_CONFIG] environment=${isProduction ? 'production' : 'development'} processorUrl_configured=${!!processorUrl} secret_configured=${!!secret}`);

@@ -82,7 +82,7 @@ function getWatermarkFilter(isDark) {
   const stepY = 120;
   const fontParam = getEscapedFontFileParam();
 
-  const fontColor = isDark ? '0xFFFFFF@0.0' : '0x464646@0.0';
+  const fontColor = isDark ? '0xFFFFFF@0.35' : '0x464646@0.35';
   const borderColor = isDark ? '0xDDDDDD@0.35' : '0x464646@0.35';
 
   const drawtextFilters = [];
@@ -312,7 +312,7 @@ async function generateVideoPreview(dealId, fileVersionId, fileId) {
 }
 
 const authenticate = (req, res, next) => {
-  const secret = process.env.VIDEO_PROCESSOR_SECRET;
+  const secret = (process.env.VIDEO_PROCESSOR_SECRET || '').trim().replace(/^["']|["']$/g, '');
   console.log(`[VIDEO_PROCESSOR_AUTH] secretConfigured=${!!secret} secretLength=${secret ? secret.length : 0}`);
   
   if (!secret) {
@@ -327,7 +327,7 @@ const authenticate = (req, res, next) => {
     return res.status(401).json({ error: 'Unauthorized: Missing or invalid authorization header' });
   }
   
-  const token = authHeader.split(' ')[1];
+  const token = (authHeader.split(' ')[1] || '').trim().replace(/^["']|["']$/g, '');
   console.log(`[VIDEO_PROCESSOR_AUTH] receivedTokenConfigured=${!!token} expectedTokenLength=${secret.length} receivedTokenLength=${token ? token.length : 0}`);
   
   if (token !== secret) {
