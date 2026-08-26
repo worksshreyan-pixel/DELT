@@ -313,18 +313,29 @@ async function generateVideoPreview(dealId, fileVersionId, fileId) {
 
 const authenticate = (req, res, next) => {
   const secret = process.env.VIDEO_PROCESSOR_SECRET;
+  console.log(`[VIDEO_PROCESSOR_AUTH] secretConfigured=${!!secret} secretLength=${secret ? secret.length : 0}`);
+  
   if (!secret) {
     console.error('[VIDEO_PROCESSOR] Configuration error: VIDEO_PROCESSOR_SECRET environment variable is not set.');
     return res.status(500).json({ error: 'Internal Server Error: Video processor is misconfigured (missing authentication key)' });
   }
+  
   const authHeader = req.headers.authorization;
+  console.log(`[VIDEO_PROCESSOR_AUTH] authHeaderPresent=${!!authHeader} authHeaderPrefixMatch=${authHeader ? authHeader.startsWith('Bearer ') : false}`);
+  
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Unauthorized: Missing or invalid authorization header' });
   }
+  
   const token = authHeader.split(' ')[1];
+  console.log(`[VIDEO_PROCESSOR_AUTH] receivedTokenConfigured=${!!token} expectedTokenLength=${secret.length} receivedTokenLength=${token ? token.length : 0}`);
+  
   if (token !== secret) {
+    console.warn(`[VIDEO_PROCESSOR_AUTH] Token mismatch detected! expectedLength=${secret.length} receivedLength=${token.length}`);
     return res.status(401).json({ error: 'Unauthorized: Invalid token' });
   }
+  
+  console.log(`[VIDEO_PROCESSOR_AUTH] Authentication successful`);
   next();
 };
 

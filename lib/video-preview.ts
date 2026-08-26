@@ -190,6 +190,11 @@ export async function generateVideoPreview(dealId: string, fileVersionId: string
     console.log(`[VIDEO_PROCESSOR_CONFIG] environment=${isProduction ? 'production' : 'development'} processorUrl_configured=${!!processorUrl} secret_configured=${!!secret}`);
 
     if (processorUrl) {
+      if (isProduction && processorUrl.includes('localhost')) {
+        console.error(`[VIDEO_PROCESSOR] Configuration error: VIDEO_PROCESSOR_URL cannot resolve to localhost in production. Please use the Render service URL.`);
+        throw new Error('[VIDEO_PROCESSOR] Configuration error: VIDEO_PROCESSOR_URL cannot resolve to localhost in production.');
+      }
+
       if (!secret) {
         console.error(`[VIDEO_PROCESSOR] Configuration error: VIDEO_PROCESSOR_SECRET is missing. Cannot delegate request securely.`);
         throw new Error('[VIDEO_PROCESSOR] Configuration error: VIDEO_PROCESSOR_SECRET is missing.');
