@@ -192,27 +192,48 @@ export async function POST(request: Request) {
     }
 
     // 3. Create Deal record
-    const { data: deal, error: dealError } = await admin
-      .from('deals')
-      .insert({
-        token,
-        creator_id: user.id,
-        client_id: clientId,
-        client_name: clientName.trim(),
-        client_email: clientEmail.trim().toLowerCase(),
-        title: title.trim(),
-        description: serializeDescription(description.trim() || null, previewEnabled),
-        scope: scope.length > 0 ? scope : ['Project requirements & delivery'],
-        price: price,
-        currency,
-        status: 'in_progress',
-        deadline: deadline || null,
-        progress: 10,
-        payment_status: 'pending',
-        last_activity_at: now,
-      })
-      .select()
-      .single();
+    let deal: any = null;
+    let dealError: any = null;
+    
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const dealCode = `DLT-${Array.from({length: 8}, () => 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'[Math.floor(Math.random() * 36)]).join('')}`;
+      
+      const { data, error } = await admin
+        .from('deals')
+        .insert({
+          deal_code: dealCode,
+          token,
+          creator_id: user.id,
+          client_id: clientId,
+          client_name: clientName.trim(),
+          client_email: clientEmail.trim().toLowerCase(),
+          title: title.trim(),
+          description: serializeDescription(description.trim() || null, previewEnabled),
+          scope: scope.length > 0 ? scope : ['Project requirements & delivery'],
+          price: price,
+          currency,
+          status: 'in_progress',
+          deadline: deadline || null,
+          progress: 10,
+          payment_status: 'pending',
+          last_activity_at: now,
+        })
+        .select()
+        .single();
+        
+      if (error) {
+        dealError = error;
+        // Postgres unique violation code is '23505'
+        if (error.code === '23505' || (error.message && error.message.includes('deal_code'))) {
+          continue; // Try again
+        }
+        break; // Other error, don't retry
+      }
+      
+      deal = data;
+      dealError = null;
+      break; // Success
+    }
 
     if (dealError || !deal) {
       console.error('Deal creation error:', dealError);

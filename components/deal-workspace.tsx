@@ -1187,9 +1187,7 @@ function FilesTab({
     });
   }, [deal.id]);
 
-  const runningTasks = activeTasks.filter(
-    (t) => t.status === 'uploading' || t.status === 'waiting' || t.status === 'failed' || (t.status === 'completed' && (t.previewStatus === 'processing' || t.previewStatus === 'waiting'))
-  );
+  const runningTasks = activeTasks;
 
   useEffect(() => {
     setLocalDeliverables(deliverables.filter(d => !d.name.startsWith('[DELETED]')));
@@ -1309,7 +1307,10 @@ function FilesTab({
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-semibold flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-                Uploading Files ({runningTasks.filter(t => t.status !== 'failed').length} in queue)
+                {runningTasks.some(t => t.status === 'uploading' || t.status === 'waiting') 
+                  ? `Uploading Files (${runningTasks.filter(t => t.status !== 'failed').length} in queue)`
+                  : `Processing Previews (${runningTasks.filter(t => t.status !== 'failed').length} in queue)`
+                }
               </h4>
             </div>
             <div className="space-y-3">

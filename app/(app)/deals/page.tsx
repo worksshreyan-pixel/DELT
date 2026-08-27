@@ -139,7 +139,7 @@ export default function DealsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2, delay: i * 0.03 }}
               >
-                <Link href={`/deals/${deal.id}`}>
+                <Link href={`/deals/${deal.dealCode || deal.id}`}>
                   <Card className="transition-colors hover:bg-accent/30 cursor-pointer">
                     <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0 flex-1">

@@ -343,6 +343,7 @@ export async function syncStoreFromSupabase(userId: string, force = false) {
     if (dealsData) {
       currentStoreState.deals = dealsData.map((d: any) => ({
         id: d.id,
+        dealCode: d.deal_code,
         token: d.token,
         creatorId: d.creator_id,
         clientId: d.client_id,

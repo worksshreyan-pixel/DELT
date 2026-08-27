@@ -105,6 +105,7 @@ function CreateDealForm() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [waitDealId, setWaitDealId] = useState<string | null>(null);
+  const [waitDealCode, setWaitDealCode] = useState<string | null>(null);
   const [activeTasks, setActiveTasks] = useState<UploadTask[]>([]);
   const [localFileVersions, setLocalFileVersions] = useState<any[]>([]);
 
@@ -217,9 +218,9 @@ function CreateDealForm() {
     );
 
     if (!hasIncompleteUploads && !hasProcessingPreviews) {
-      router.push(`/deals/${waitDealId}`);
+      router.push(`/deals/${waitDealCode || waitDealId}`);
     }
-  }, [waitDealId, activeTasks, localFileVersions, router, selectedFiles.length]);
+  }, [waitDealId, waitDealCode, activeTasks, localFileVersions, router, selectedFiles.length]);
 
   // Sync preview status from localFileVersions to uploadQueue tasks
   useEffect(() => {
@@ -413,8 +414,9 @@ function CreateDealForm() {
           previewEnabled
         );
         setWaitDealId(deal.id);
+        setWaitDealCode(deal.deal_code);
       } else {
-        router.push(`/deals/${deal.id}`);
+        router.push(`/deals/${deal.deal_code || deal.id}`);
       }
     } catch (err: any) {
       console.error('Error creating deal:', err);
@@ -584,7 +586,7 @@ function CreateDealForm() {
                 <div className="pt-2">
                   <Button
                     className="w-full gap-2"
-                    onClick={() => router.push(`/deals/${createdDeal.id}`)}
+                    onClick={() => router.push(`/deals/${createdDeal.dealCode || createdDeal.id}`)}
                   >
                     Open Deal Workspace
                     <ArrowRight className="h-4 w-4" />
@@ -598,9 +600,7 @@ function CreateDealForm() {
     );
   }
 
-  const runningTasks = activeTasks.filter(
-    (t) => t.status === 'uploading' || t.status === 'waiting' || t.status === 'failed' || (t.status === 'completed' && (t.previewStatus === 'processing' || t.previewStatus === 'waiting'))
-  );
+  const runningTasks = activeTasks;
 
   if (waitDealId) {
     return (
@@ -612,7 +612,11 @@ function CreateDealForm() {
                 <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 mb-4">
                   <RefreshCw className="h-7 w-7 text-primary animate-spin" />
                 </div>
-                <h2 className="text-xl font-display font-semibold tracking-tight">Uploading Initial Files</h2>
+                <h2 className="text-xl font-display font-semibold tracking-tight">
+                  {runningTasks.some(t => t.status === 'uploading' || t.status === 'waiting')
+                    ? 'Uploading Initial Files'
+                    : 'Processing Previews'}
+                </h2>
                 <p className="text-sm font-medium text-muted-foreground">
                   Please wait while your files are uploaded and processed...
                 </p>

@@ -228,7 +228,7 @@ export default function DashboardPage() {
                   return (
                     <Link
                       key={deal.id}
-                      href={`/deals/${deal.id}`}
+                      href={`/deals/${deal.dealCode || deal.id}`}
                       className="flex flex-col sm:flex-row sm:items-center justify-between rounded-lg border border-border p-3.5 transition-colors hover:bg-accent/40 gap-2"
                     >
                       <div className="min-w-0 flex-1">

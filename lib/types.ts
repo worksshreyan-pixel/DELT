@@ -70,6 +70,7 @@ export type Currency = 'INR' | 'USD' | 'EUR' | 'GBP';
 
 export interface Deal {
   id: UUID;
+  dealCode?: string; // e.g. DLT-A7F39C21
   token: string; // unguessable share token for client access
   creatorId: UUID;
   clientId: UUID;

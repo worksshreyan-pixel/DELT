@@ -14,23 +14,29 @@ import type { Deal, DealMessage, PriceProposal, DealEvent, Deliverable, FileVers
 
 export default function DealDetailPage() {
   const params = useParams();
-  const dealId = params.id as string;
+  const routeParam = params.id as string;
   const store = useAppStore();
 
-  const [deal, setDeal] = useState<Deal | null>(() => store.deals.find((d) => d.id === dealId) || null);
-  const [messages, setMessages] = useState<DealMessage[]>(() => store.messages[dealId] || []);
-  const [proposals, setProposals] = useState<PriceProposal[]>(() => store.proposals[dealId] || []);
-  const [deliverables, setDeliverables] = useState<Deliverable[]>(() => store.deliverables[dealId] || []);
-  const [fileVersions, setFileVersions] = useState<FileVersion[]>(() => store.fileVersions[dealId] || []);
-  const [events, setEvents] = useState<DealEvent[]>(() => store.events[dealId] || []);
-  const [payments, setPayments] = useState<Payment[]>(() => store.payments[dealId] || []);
+  const [deal, setDeal] = useState<Deal | null>(() => store.deals.find((d) => d.id === routeParam || d.dealCode === routeParam) || null);
+  
+  // Use resolved ID for child store lookup, fallback to routeParam if not loaded yet
+  const actualDealId = deal?.id || routeParam;
+
+  const [messages, setMessages] = useState<DealMessage[]>(() => store.messages[actualDealId] || []);
+  const [proposals, setProposals] = useState<PriceProposal[]>(() => store.proposals[actualDealId] || []);
+  const [deliverables, setDeliverables] = useState<Deliverable[]>(() => store.deliverables[actualDealId] || []);
+  const [fileVersions, setFileVersions] = useState<FileVersion[]>(() => store.fileVersions[actualDealId] || []);
+  const [events, setEvents] = useState<DealEvent[]>(() => store.events[actualDealId] || []);
+  const [payments, setPayments] = useState<Payment[]>(() => store.payments[actualDealId] || []);
   const [loading, setLoading] = useState(!deal);
 
   useEffect(() => {
-    const storeDeal = store.deals.find((d) => d.id === dealId);
+    const storeDeal = store.deals.find((d) => d.id === routeParam || d.dealCode === routeParam);
+    const resolvedId = storeDeal?.id || routeParam;
+    
     if (storeDeal) {
       setDeal(storeDeal);
-      setPayments(store.payments[dealId] || []);
+      setPayments(store.payments[resolvedId] || []);
     }
 
     if (!hasSupabasePublicConfig()) {
@@ -43,15 +49,21 @@ export default function DealDetailPage() {
       try {
         let currentDeal = storeDeal;
         if (!currentDeal) {
-          const { data: dbDeal } = await supabase
-            .from('deals')
-            .select('*')
-            .eq('id', dealId)
-            .maybeSingle();
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(routeParam);
+          let query = supabase.from('deals').select('*');
+          
+          if (isUuid) {
+            query = query.eq('id', routeParam);
+          } else {
+            query = query.eq('deal_code', routeParam);
+          }
+          
+          const { data: dbDeal } = await query.maybeSingle();
 
           if (dbDeal) {
             currentDeal = {
               id: dbDeal.id,
+              dealCode: dbDeal.deal_code,
               token: dbDeal.token,
               creatorId: dbDeal.creator_id,
               clientId: dbDeal.client_id || '',
@@ -74,13 +86,14 @@ export default function DealDetailPage() {
         }
 
         if (currentDeal) {
+          const fetchedId = currentDeal.id;
           // Fetch child data in parallel
           const [dbMsgs, dbProps, dbDelivs, dbVersions, dbEvents] = await Promise.all([
-            supabase.from('deal_messages').select('*').eq('deal_id', dealId).order('created_at', { ascending: true }),
-            supabase.from('price_proposals').select('*').eq('deal_id', dealId).order('created_at', { ascending: true }),
-            supabase.from('deliverables').select('*').eq('deal_id', dealId),
-            supabase.from('file_versions').select('*').eq('deal_id', dealId).order('version', { ascending: true }),
-            supabase.from('deal_events').select('*').eq('deal_id', dealId).order('created_at', { ascending: false })
+            supabase.from('deal_messages').select('*').eq('deal_id', fetchedId).order('created_at', { ascending: true }),
+            supabase.from('price_proposals').select('*').eq('deal_id', fetchedId).order('created_at', { ascending: true }),
+            supabase.from('deliverables').select('*').eq('deal_id', fetchedId),
+            supabase.from('file_versions').select('*').eq('deal_id', fetchedId).order('version', { ascending: true }),
+            supabase.from('deal_events').select('*').eq('deal_id', fetchedId).order('created_at', { ascending: false })
           ]);
 
           if (dbMsgs.data) {
@@ -128,7 +141,7 @@ export default function DealDetailPage() {
             setFileVersions(dbVersions.data.map((v: any) => ({
               id: v.id,
               deliverableId: v.deliverable_id,
-              dealId: v.deal_id || dealId,
+              dealId: v.deal_id || actualDealId,
               version: v.version,
               description: v.description,
               uploaderId: v.uploader_id || '',
@@ -160,22 +173,22 @@ export default function DealDetailPage() {
     }
 
     fetchDealData();
-  }, [dealId, store.deals, store.payments]);
+  }, [actualDealId, store.deals, store.payments]);
 
   useEffect(() => {
-    if (!dealId || !hasSupabasePublicConfig()) return;
+    if (!actualDealId || !hasSupabasePublicConfig()) return;
 
     const supabase = createClient();
     const channel = supabase
-      .channel(`deal-creator:${dealId}`)
+      .channel(`deal-creator:${actualDealId}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'deal_messages', filter: `deal_id=eq.${dealId}` },
+        { event: 'INSERT', schema: 'public', table: 'deal_messages', filter: `deal_id=eq.${actualDealId}` },
         (payload) => {
           const raw = payload.new as any;
           const formattedMsg = {
             id: raw.id,
-            dealId: raw.deal_id || raw.dealId || dealId,
+            dealId: raw.deal_id || raw.actualDealId || actualDealId,
             senderId: raw.sender_id || raw.senderId || 'user',
             senderName: raw.sender_name || raw.senderName || 'User',
             senderRole: raw.sender_role || raw.senderRole || 'client',
@@ -195,12 +208,12 @@ export default function DealDetailPage() {
       )
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'price_proposals', filter: `deal_id=eq.${dealId}` },
+        { event: '*', schema: 'public', table: 'price_proposals', filter: `deal_id=eq.${actualDealId}` },
         (payload) => {
           const raw = payload.new as any;
           const formattedProp: PriceProposal = {
             id: raw.id,
-            dealId: raw.deal_id || raw.dealId || dealId,
+            dealId: raw.deal_id || raw.actualDealId || actualDealId,
             direction: raw.direction,
             previousPrice: Number(raw.previous_price ?? raw.previousPrice ?? 0),
             proposedPrice: Number(raw.proposed_price ?? raw.proposedPrice ?? 0),
@@ -227,7 +240,7 @@ export default function DealDetailPage() {
       )
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'deals', filter: `id=eq.${dealId}` },
+        { event: 'UPDATE', schema: 'public', table: 'deals', filter: `id=eq.${actualDealId}` },
         (payload) => {
           const updated = payload.new as any;
           setDeal((prev) => {
@@ -248,7 +261,7 @@ export default function DealDetailPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [dealId]);
+  }, [actualDealId]);
 
   if (loading) {
     return (

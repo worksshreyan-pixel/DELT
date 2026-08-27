@@ -14,17 +14,20 @@ import type { Deal, Deliverable, FileVersion, Payment } from '@/lib/types';
 
 export default function DealSettingsPage() {
   const params = useParams();
-  const dealId = params.id as string;
+  const routeParam = params.id as string;
   const store = useAppStore();
 
-  const [deal, setDeal] = useState<Deal | null>(() => store.deals.find((d) => d.id === dealId) || null);
-  const [deliverables, setDeliverables] = useState<Deliverable[]>(() => store.deliverables[dealId] || []);
-  const [fileVersions, setFileVersions] = useState<FileVersion[]>(() => store.fileVersions[dealId] || []);
-  const [payments, setPayments] = useState<Payment[]>(() => store.payments[dealId] || []);
+  const [deal, setDeal] = useState<Deal | null>(() => store.deals.find((d) => d.id === routeParam || d.dealCode === routeParam) || null);
+  
+  const actualDealId = deal?.id || routeParam;
+
+  const [deliverables, setDeliverables] = useState<Deliverable[]>(() => store.deliverables[actualDealId] || []);
+  const [fileVersions, setFileVersions] = useState<FileVersion[]>(() => store.fileVersions[actualDealId] || []);
+  const [payments, setPayments] = useState<Payment[]>(() => store.payments[actualDealId] || []);
   const [loading, setLoading] = useState(!deal);
 
   useEffect(() => {
-    const storeDeal = store.deals.find((d) => d.id === dealId);
+    const storeDeal = store.deals.find((d) => d.id === routeParam || d.dealCode === routeParam);
     if (storeDeal) {
       setDeal(storeDeal);
     }
@@ -39,15 +42,21 @@ export default function DealSettingsPage() {
       try {
         let currentDeal = storeDeal;
         if (!currentDeal) {
-          const { data: dbDeal } = await supabase
-            .from('deals')
-            .select('*')
-            .eq('id', dealId)
-            .maybeSingle();
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(routeParam);
+          let query = supabase.from('deals').select('*');
+          
+          if (isUuid) {
+            query = query.eq('id', routeParam);
+          } else {
+            query = query.eq('deal_code', routeParam);
+          }
+          
+          const { data: dbDeal } = await query.maybeSingle();
 
           if (dbDeal) {
             currentDeal = {
               id: dbDeal.id,
+              dealCode: dbDeal.deal_code,
               token: dbDeal.token,
               creatorId: dbDeal.creator_id,
               clientId: dbDeal.client_id || '',
@@ -70,10 +79,11 @@ export default function DealSettingsPage() {
         }
 
         if (currentDeal) {
+          const fetchedId = currentDeal.id;
           const [dbDelivs, dbVersions, dbPayments] = await Promise.all([
-            supabase.from('deliverables').select('*').eq('deal_id', dealId),
-            supabase.from('file_versions').select('*').eq('deal_id', dealId).order('version', { ascending: true }),
-            supabase.from('payments').select('*').eq('deal_id', dealId)
+            supabase.from('deliverables').select('*').eq('deal_id', fetchedId),
+            supabase.from('file_versions').select('*').eq('deal_id', fetchedId).order('version', { ascending: true }),
+            supabase.from('payments').select('*').eq('deal_id', fetchedId).order('created_at', { ascending: true })
           ]);
 
           if (dbDelivs.data) {
@@ -91,7 +101,7 @@ export default function DealSettingsPage() {
             setFileVersions(dbVersions.data.map((v: any) => ({
               id: v.id,
               deliverableId: v.deliverable_id,
-              dealId: v.deal_id || dealId,
+              dealId: v.deal_id || actualDealId,
               version: v.version,
               description: v.description,
               uploaderId: v.uploader_id || '',
@@ -130,7 +140,7 @@ export default function DealSettingsPage() {
     }
 
     fetchDealData();
-  }, [dealId, store.deals, store.payments]);
+  }, [actualDealId, store.deals, store.payments]);
 
   if (loading) {
     return (

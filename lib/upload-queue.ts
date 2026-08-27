@@ -359,15 +359,26 @@ class UploadQueueManager {
       }
       this.batches.delete(batch.id);
     }
+    
+    // Auto-remove successful tasks if they don't need preview processing
+    if (success && task.previewStatus !== 'processing' && task.previewStatus !== 'waiting') {
+      setTimeout(() => {
+        this.removeTask(task.id);
+      }, 2000);
+    }
   }
 
   public updateTaskPreviewStatusByFileName(fileName: string, status: 'ready' | 'failed' | 'unavailable') {
     let updated = false;
-    for (const batch of Array.from(this.batches.values())) {
-      for (const task of batch.tasks) {
-        if (task.fileName === fileName && task.previewStatus !== status) {
-          task.previewStatus = status as any;
-          updated = true;
+    for (const task of this.tasks) {
+      if (task.fileName === fileName && task.previewStatus !== status) {
+        task.previewStatus = status as any;
+        updated = true;
+        
+        if (status === 'ready' || status === 'failed' || status === 'unavailable') {
+          setTimeout(() => {
+            this.removeTask(task.id);
+          }, 2000);
         }
       }
     }
