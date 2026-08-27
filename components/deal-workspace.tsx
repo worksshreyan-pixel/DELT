@@ -662,31 +662,6 @@ function ChatTab({
       .channel(`deal:${deal.id}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'deal_messages', filter: `deal_id=eq.${deal.id}` },
-        (payload) => {
-          const raw = payload.new as any;
-          const formattedMsg: DealMessage = {
-            id: raw.id,
-            dealId: raw.deal_id || raw.dealId || deal.id,
-            senderId: raw.sender_id || raw.senderId || 'creator',
-            senderName: raw.sender_name || raw.senderName || creatorName,
-            senderRole: raw.sender_role || raw.senderRole || 'creator',
-            type: raw.type,
-            content: raw.content,
-            proposalId: raw.proposal_id || raw.proposalId,
-            createdAt: raw.created_at || raw.createdAt || new Date().toISOString(),
-          };
-          setLocalMessages((prev) => {
-            // Replace any optimistic message with same content if within 5 seconds, or deduplicate
-            const exists = prev.some((m) => m.id === formattedMsg.id);
-            if (exists) return prev;
-            const filtered = prev.filter((m) => !(m.id.startsWith('msg_') && m.content === formattedMsg.content));
-            return [...filtered, formattedMsg];
-          });
-        }
-      )
-      .on(
-        'postgres_changes',
         { event: '*', schema: 'public', table: 'price_proposals', filter: `deal_id=eq.${deal.id}` },
         (payload) => {
           const raw = payload.new as any;
@@ -761,6 +736,7 @@ function ChatTab({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           dealId: deal.id,
+          senderId: 'creator',
           senderName: creatorName,
           senderRole: 'creator',
           type: 'text',
@@ -1228,7 +1204,7 @@ function FilesTab({
     if (!selectedFile) return;
 
     try {
-      const { previewEnabled } = parseDescription(deal.description);
+      const previewEnabled = deal.previewEnabled;
       const deliverableId = selectedDeliverable || deliverables[0]?.id || 'del-1';
 
       uploadQueue.addUploads(

@@ -795,11 +795,16 @@ function ClientPortal({
     setMessages((prev) => [...prev, optMsg]);
 
     try {
+      const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${currentDeal.token}`) : null;
       const res = await fetch('/api/messages/send', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(savedToken ? { 'x-client-session-token': savedToken } : {}),
+        },
         body: JSON.stringify({
           dealId: currentDeal.id,
+          senderId: 'client',
           senderName: clientName,
           senderRole: 'client',
           type: 'text',
@@ -836,9 +841,13 @@ function ClientPortal({
 
     setSubmittingProposal(true);
     try {
+      const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${currentDeal.token}`) : null;
       const res = await fetch('/api/negotiation/propose', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(savedToken ? { 'x-client-session-token': savedToken } : {}),
+        },
         body: JSON.stringify({
           dealId: currentDeal.id,
           proposedPrice: price,
@@ -886,9 +895,13 @@ function ClientPortal({
 
     setSubmittingProposal(true);
     try {
+      const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${currentDeal.token}`) : null;
       const res = await fetch('/api/negotiation/propose', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(savedToken ? { 'x-client-session-token': savedToken } : {}),
+        },
         body: JSON.stringify({
           dealId: currentDeal.id,
           proposedPrice: price,
@@ -935,9 +948,13 @@ function ClientPortal({
 
   async function handleAcceptProposal(proposal: PriceProposal) {
     try {
+      const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${currentDeal.token}`) : null;
       const res = await fetch('/api/negotiation/respond', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(savedToken ? { 'x-client-session-token': savedToken } : {}),
+        },
         body: JSON.stringify({
           proposalId: proposal.id,
           dealId: currentDeal.id,
@@ -968,9 +985,13 @@ function ClientPortal({
 
   async function handleDeclineProposal(proposal: PriceProposal) {
     try {
+      const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${currentDeal.token}`) : null;
       const res = await fetch('/api/negotiation/respond', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(savedToken ? { 'x-client-session-token': savedToken } : {}),
+        },
         body: JSON.stringify({
           proposalId: proposal.id,
           dealId: currentDeal.id,

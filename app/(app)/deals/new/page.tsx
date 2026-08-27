@@ -37,7 +37,8 @@ import { cn } from '@/lib/utils';
 import { formatCurrency, formatBytes } from '@/lib/plans';
 import { STANDARD_TEMPLATES, createDealInStore, useAppStore, type Deal } from '@/lib/app-store';
 import { getDealPublicUrl } from '@/lib/deal-url';
-import { uploadQueue } from '@/lib/upload-queue';
+import { uploadQueue, type UploadTask } from '@/lib/upload-queue';
+import { createClient } from '@/lib/supabase/client';
 
 const steps = [
   { id: 'client', label: 'Client', icon: User },
@@ -102,6 +103,123 @@ function CreateDealForm() {
   const [scopeInput, setScopeInput] = useState('');
   const [deliverableInput, setDeliverableInput] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [waitDealId, setWaitDealId] = useState<string | null>(null);
+  const [activeTasks, setActiveTasks] = useState<UploadTask[]>([]);
+  const [localFileVersions, setLocalFileVersions] = useState<any[]>([]);
+
+  // Subscribe to upload tasks
+  useEffect(() => {
+    if (!waitDealId) return;
+    return uploadQueue.subscribe((tasks) => {
+      setActiveTasks(tasks.filter((t) => t.dealId === waitDealId));
+    });
+  }, [waitDealId]);
+
+  // Listen for file uploads completing to fetch their DB records and check preview statuses
+  useEffect(() => {
+    if (!waitDealId) return;
+    
+    async function fetchFiles() {
+      try {
+        const supabase = createClient();
+        const { data: dbVersions } = await supabase
+          .from('file_versions')
+          .select('*')
+          .eq('deal_id', waitDealId)
+          .order('version', { ascending: true });
+
+        if (dbVersions) {
+          setLocalFileVersions(dbVersions.map((v: any) => ({
+            id: v.id,
+            files: Array.isArray(v.files) ? v.files : [],
+            status: v.status,
+          })));
+        }
+      } catch (err) {
+        console.error('Error fetching files:', err);
+      }
+    }
+
+    const handleRefresh = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail?.dealId === waitDealId) {
+        fetchFiles();
+      }
+    };
+    
+    window.addEventListener('delt-files-uploaded', handleRefresh);
+    fetchFiles(); // initial fetch
+
+    return () => {
+      window.removeEventListener('delt-files-uploaded', handleRefresh);
+    };
+  }, [waitDealId]);
+
+  // Polling for processing previews
+  useEffect(() => {
+    if (!waitDealId) return;
+
+    let hasProcessing = false;
+    for (const v of localFileVersions) {
+      const files = Array.isArray(v.files) ? v.files : [];
+      if (files.some((f: any) => f.previewStatus === 'processing')) {
+        hasProcessing = true;
+        break;
+      }
+    }
+
+    if (!hasProcessing) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const supabase = createClient();
+        const { data: dbVersions } = await supabase
+          .from('file_versions')
+          .select('*')
+          .eq('deal_id', waitDealId)
+          .order('version', { ascending: true });
+
+        if (dbVersions) {
+          const formatted = dbVersions.map((v: any) => ({
+            id: v.id,
+            files: Array.isArray(v.files) ? v.files : [],
+            status: v.status,
+          }));
+          setLocalFileVersions(formatted);
+          
+          const stillProcessing = formatted.some((v: any) =>
+            v.files.some((f: any) => f.previewStatus === 'processing')
+          );
+          if (!stillProcessing) {
+            clearInterval(interval);
+          }
+        }
+      } catch (err) {
+        console.error('Error polling files:', err);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [waitDealId, localFileVersions]);
+
+  // Check if we can navigate
+  useEffect(() => {
+    if (!waitDealId) return;
+    if (activeTasks.length === 0 && selectedFiles.length > 0) return; // Haven't started yet
+
+    const hasIncompleteUploads = activeTasks.some(
+      t => t.status === 'uploading' || t.status === 'waiting'
+    );
+    
+    const hasProcessingPreviews = localFileVersions.some(v => 
+      Array.isArray(v.files) && v.files.some((f: any) => f.previewStatus === 'processing')
+    );
+
+    if (!hasIncompleteUploads && !hasProcessingPreviews) {
+      router.push(`/deals/${waitDealId}`);
+    }
+  }, [waitDealId, activeTasks, localFileVersions, router, selectedFiles.length]);
 
   // Prefill from template query param if provided
   useEffect(() => {
@@ -257,17 +375,6 @@ function CreateDealForm() {
       const deal = json.deal;
       const deliverableId = json.deliverableId;
 
-      // 2. Perform direct storage uploads for selected files asynchronously
-      if (selectedFiles.length > 0 && deliverableId) {
-        uploadQueue.addUploads(
-          deal.id,
-          deliverableId,
-          selectedFiles,
-          'Initial project deliverable files',
-          previewEnabled
-        );
-      }
-
       // Sync local reactive store
       createDealInStore({
         clientName: data.clientName.trim(),
@@ -282,7 +389,19 @@ function CreateDealForm() {
         deliverables: data.deliverables,
       });
 
-      router.push(`/deals/${deal.id}`);
+      // 2. Perform direct storage uploads for selected files asynchronously
+      if (selectedFiles.length > 0 && deliverableId) {
+        uploadQueue.addUploads(
+          deal.id,
+          deliverableId,
+          selectedFiles,
+          'Initial project deliverable files',
+          previewEnabled
+        );
+        setWaitDealId(deal.id);
+      } else {
+        router.push(`/deals/${deal.id}`);
+      }
     } catch (err: any) {
       console.error('Error creating deal:', err);
       setValidationError(err.message || 'Deal creation failed.');
@@ -458,6 +577,80 @@ function CreateDealForm() {
                   </Button>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
+    );
+  }
+
+  const runningTasks = activeTasks.filter(
+    (t) => t.status === 'uploading' || t.status === 'waiting' || t.status === 'failed' || (t.status === 'completed' && (t.previewStatus === 'processing' || t.previewStatus === 'waiting'))
+  );
+
+  if (waitDealId) {
+    return (
+      <div className="mx-auto max-w-lg py-6">
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
+          <Card className="border-border">
+            <CardContent className="p-6 sm:p-8 space-y-6">
+              <div className="text-center space-y-2">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 mb-4">
+                  <RefreshCw className="h-7 w-7 text-primary animate-spin" />
+                </div>
+                <h2 className="text-xl font-display font-semibold tracking-tight">Uploading Initial Files</h2>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Please wait while your files are uploaded and processed...
+                </p>
+              </div>
+              
+              {runningTasks.length > 0 && (
+                <div className="space-y-3">
+                  {runningTasks.map((task) => (
+                    <div key={task.id} className="text-xs space-y-1 bg-background/50 border border-border/50 rounded-lg p-2.5 relative">
+                      <div className="flex items-center justify-between font-medium">
+                        <span className="truncate max-w-[250px] pr-6">{task.fileName}</span>
+                        {task.status === 'failed' ? (
+                          <span className="text-destructive font-semibold">Failed</span>
+                        ) : task.status === 'completed' && task.previewStatus ? (
+                          <span className="text-muted-foreground">
+                            {task.previewStatus === 'processing' ? 'Generating preview...' : 
+                             task.previewStatus === 'ready' ? 'Preview ready ✓' : 
+                             task.previewStatus === 'failed' || task.previewStatus === 'unavailable' ? 'Preview unavailable ⚠' : 'Upload complete ✓'}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">{task.percentage}%</span>
+                        )}
+                      </div>
+                      
+                      {task.status === 'failed' ? (
+                        <p className="text-[10px] text-destructive mt-0.5">{task.error || 'Upload error'}</p>
+                      ) : task.status === 'completed' && task.previewStatus === 'processing' ? (
+                        <div className="mt-1 flex items-center text-[10px] text-primary/80 animate-pulse">
+                          Processing video preview...
+                        </div>
+                      ) : task.status !== 'completed' ? (
+                        <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden mt-1">
+                          <div
+                            className="bg-primary h-full transition-all duration-200"
+                            style={{ width: `${task.percentage}%` }}
+                          />
+                        </div>
+                      ) : null}
+
+                      {task.status === 'failed' && (
+                        <button
+                          type="button"
+                          onClick={() => uploadQueue.removeTask(task.id)}
+                          className="absolute top-2 right-2 text-muted-foreground hover:text-foreground"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </motion.div>
