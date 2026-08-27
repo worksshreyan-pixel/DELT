@@ -1195,6 +1195,20 @@ function FilesTab({
     setLocalDeliverables(deliverables.filter(d => !d.name.startsWith('[DELETED]')));
   }, [deliverables]);
 
+  // Sync preview status from database fileVersions to uploadQueue tasks
+  useEffect(() => {
+    activeTasks.forEach(task => {
+      if (task.status === 'completed' && task.previewStatus === 'processing') {
+        for (const fv of fileVersions) {
+          const matchedFile = fv.files?.find((f: any) => f.name === task.fileName);
+          if (matchedFile && matchedFile.previewStatus && matchedFile.previewStatus !== 'processing') {
+            uploadQueue.updateTaskPreviewStatusByFileName(task.fileName, matchedFile.previewStatus);
+          }
+        }
+      }
+    });
+  }, [fileVersions, activeTasks]);
+
 
 
 

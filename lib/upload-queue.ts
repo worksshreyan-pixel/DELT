@@ -360,6 +360,21 @@ class UploadQueueManager {
       this.batches.delete(batch.id);
     }
   }
+
+  public updateTaskPreviewStatusByFileName(fileName: string, status: 'ready' | 'failed' | 'unavailable') {
+    let updated = false;
+    for (const batch of Array.from(this.batches.values())) {
+      for (const task of batch.tasks) {
+        if (task.fileName === fileName && task.previewStatus !== status) {
+          task.previewStatus = status as any;
+          updated = true;
+        }
+      }
+    }
+    if (updated) {
+      this.notify();
+    }
+  }
 }
 
 // Global files registry to reference original File payloads across async loops
