@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Shield, Lock, KeyRound, FileCheck, Eye, Activity, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -13,6 +14,13 @@ const principles = [
   { icon: Activity, title: 'Full audit trail', desc: 'Every action — from deal creation to file upload to payment — is logged as an immutable event in the activity timeline.' },
   { icon: Shield, title: 'Secure by architecture', desc: 'Row-level security, server-side validation, and signed URLs are designed into the data model from day one, not bolted on later.' },
 ];
+
+export const metadata: Metadata = {
+  title: 'Security — DELT',
+  alternates: {
+    canonical: '/security',
+  },
+};
 
 export default function SecurityPage() {
   return (

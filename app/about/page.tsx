@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Target, Users, Zap, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -10,6 +11,13 @@ const values = [
   { icon: Users, title: 'Human', desc: 'DELT is built for real freelancers managing real client work. Every decision starts with the user experience.' },
   { icon: Zap, title: 'Efficient', desc: 'Less context switching. Fewer tools. One link that does the job of five apps. Speed is a feature.' },
 ];
+
+export const metadata: Metadata = {
+  title: 'About DELT — Secure Digital Work',
+  alternates: {
+    canonical: '/about',
+  },
+};
 
 export default function AboutPage() {
   return (

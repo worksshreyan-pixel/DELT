@@ -71,7 +71,7 @@ export default function LandingPage() {
               Private client transactions, all in one place
             </div>
             <h1 className="text-balance text-4xl font-display font-semibold tracking-tight sm:text-5xl md:text-6xl">
-              The workspace where digital work gets done.
+              DELT: The secure workspace for digital deals and delivery.
             </h1>
             <p className="mx-auto mt-6 max-w-xl text-balance text-lg text-muted-foreground">
               DELT brings client communication, negotiation, delivery and payment into one secure workspace.

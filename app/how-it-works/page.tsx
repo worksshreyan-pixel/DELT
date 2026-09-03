@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowRight, FolderKanban, Users, MessageSquare, FileCheck, CreditCard, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -13,6 +14,13 @@ const steps = [
   { icon: CreditCard, title: 'Get paid', desc: 'Payment status is tracked alongside the work. When payment is confirmed, files unlock automatically. You see the full fee breakdown — platform fee, processing fee, and your net amount.' },
   { icon: CheckCircle2, title: 'Complete the project', desc: 'Mark the Deal complete. Every action — from creation to completion — is preserved in the activity timeline as a permanent record.' },
 ];
+
+export const metadata: Metadata = {
+  title: 'How DELT Works — Digital Deals & Delivery',
+  alternates: {
+    canonical: '/how-it-works',
+  },
+};
 
 export default function HowItWorksPage() {
   return (
