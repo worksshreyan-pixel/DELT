@@ -47,6 +47,9 @@ export const metadata: Metadata = {
     description:
       'DELT is a secure workspace for freelancers, creators and agencies to communicate, negotiate, deliver digital work and get paid in one place.',
   },
+  verification: {
+    google: 'googlea68aae11e5a30b86',
+  },
 };
 
 const jsonLd = {
