@@ -320,11 +320,11 @@ export async function requestDealOtp(
 
   const admin = createAdminClient();
 
-  // 1. Fetch deal by token
+  // 1. Resolve deal
   const { data: deal, error: dealError } = await admin
     .from('deals')
-    .select('id, token, client_email, client_name, title')
-    .eq('token', dealToken)
+    .select('id, token, client_email, client_name, title, created_at')
+    .or(`token.eq.${dealToken},deal_code.eq.${dealToken}`)
     .maybeSingle();
 
   if (dealError || !deal) {
@@ -541,11 +541,11 @@ export async function verifyDealOtp(
 
   const admin = createAdminClient();
 
-  // 1. Fetch deal by token
+  // 1. Fetch deal by token or deal_code
   const { data: deal, error: dealError } = await admin
     .from('deals')
     .select('*')
-    .eq('token', dealToken)
+    .or(`token.eq.${dealToken},deal_code.eq.${dealToken}`)
     .maybeSingle();
 
   if (dealError || !deal) {

@@ -21,8 +21,9 @@ export async function POST(request: Request) {
     let query = supabase.from('deals').select('*');
     if (dealId) {
       query = query.eq('id', dealId);
-    } else {
-      query = query.eq('token', token);
+    } 
+    if (token) {
+      query = query.or(`token.eq.${token},deal_code.eq.${token}`);
     }
     const { data: deal, error: dealError } = await query.maybeSingle();
 

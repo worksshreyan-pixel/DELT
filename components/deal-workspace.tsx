@@ -284,7 +284,7 @@ export function DealWorkspace({
   const [closeError, setCloseError] = useState('');
   const [linkCopied, setLinkCopied] = useState(false);
 
-  const canonicalUrl = getDealPublicUrl(currentDeal.token || (currentDeal as any).id);
+  const canonicalUrl = getDealPublicUrl(currentDeal.dealCode || currentDeal.token || (currentDeal as any).id);
   const isClosed = currentDeal.status === 'closed';
 
   const handleShare = async () => {
@@ -366,13 +366,16 @@ export function DealWorkspace({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-primary">Client Portal Link</span>
+                <span className="text-xs font-semibold uppercase tracking-wider text-primary">Deal Code</span>
                 <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300">
                   OTP Protected
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground truncate font-mono select-all">
-                {canonicalUrl}
+              <p className="text-sm font-semibold truncate font-mono select-all text-foreground">
+                {currentDeal.dealCode || currentDeal.id}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Client Portal: Copy secure link below to invite client
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2 shrink-0">

@@ -20,11 +20,11 @@ export async function POST(
 
     const admin = createAdminClient();
 
-    // 1. Fetch deal by token
+    // 1. Fetch deal by token or deal_code
     const { data: dbDeal, error: dealError } = await admin
       .from('deals')
       .select('*')
-      .eq('token', token)
+      .or(`token.eq.${token},deal_code.eq.${token}`)
       .maybeSingle();
 
     if (dealError || !dbDeal) {
@@ -49,7 +49,7 @@ export async function POST(
     const clientSessionHeader = request.headers.get('x-client-session-token');
     const { verifyClientSessionToken } = await import('@/lib/otp');
     const hasValidClientToken = clientSessionHeader
-      ? verifyClientSessionToken(clientSessionHeader, token, expectedClientEmail)
+      ? verifyClientSessionToken(clientSessionHeader, dbDeal.token, expectedClientEmail)
       : false;
 
     let isAuthorizedClient = false;

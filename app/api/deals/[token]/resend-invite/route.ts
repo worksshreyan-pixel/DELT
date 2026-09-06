@@ -22,11 +22,11 @@ export async function POST(
 
     const admin = createAdminClient();
 
-    // 1. Fetch deal by token
+    // 1. Fetch deal by token or deal_code
     const { data: deal, error: dealError } = await admin
       .from('deals')
       .select('*')
-      .eq('token', token)
+      .or(`token.eq.${token},deal_code.eq.${token}`)
       .maybeSingle();
 
     if (dealError || !deal) {
@@ -41,7 +41,7 @@ export async function POST(
       .maybeSingle();
 
     const creatorName = creatorProfile?.display_name || 'Creator';
-    const canonicalDealUrl = getDealPublicUrl(deal.token);
+    const canonicalDealUrl = getDealPublicUrl(deal.deal_code || deal.token);
 
     // 3. Send email
     console.log(`[INVITATION_EMAIL_START]`, JSON.stringify({
@@ -58,6 +58,7 @@ export async function POST(
       dealPrice: Number(deal.price),
       dealCurrency: deal.currency || 'INR',
       dealUrl: canonicalDealUrl,
+      dealCode: deal.deal_code || deal.id,
     });
 
     console.log(`[INVITATION_EMAIL_RESULT]`, JSON.stringify({

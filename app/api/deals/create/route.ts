@@ -324,7 +324,7 @@ export async function POST(request: Request) {
     }
 
     // 9. Send Client Invitation Email
-    const canonicalDealUrl = getDealPublicUrl(deal.token);
+    const canonicalDealUrl = getDealPublicUrl(deal.deal_code || deal.token);
     const creatorDisplayName = user.user_metadata?.displayName || user.email?.split('@')[0] || 'Creator';
 
     console.log(`[INVITATION_EMAIL_START]`, JSON.stringify({
@@ -341,6 +341,7 @@ export async function POST(request: Request) {
       dealPrice: price,
       dealCurrency: currency,
       dealUrl: canonicalDealUrl,
+      dealCode: deal.deal_code || deal.id,
     });
 
     console.log(`[INVITATION_EMAIL_RESULT]`, JSON.stringify({

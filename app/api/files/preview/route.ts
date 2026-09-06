@@ -23,7 +23,7 @@ export async function POST(request: Request) {
       .from('deals')
       .select('*')
       .eq('id', dealId)
-      .eq('token', token)
+      .or(`token.eq.${token},deal_code.eq.${token}`)
       .maybeSingle();
 
     if (dealError || !deal) {
@@ -40,9 +40,8 @@ export async function POST(request: Request) {
 
     // Check client session token
     const clientSessionHeader = request.headers.get('x-client-session-token');
-    const { verifyClientSessionToken: verifyToken } = await import('@/lib/otp');
     const hasValidClientToken = clientSessionHeader
-      ? verifyToken(clientSessionHeader, token, expectedClientEmail)
+      ? verifyClientSessionToken(clientSessionHeader, deal.token, expectedClientEmail)
       : false;
 
     let isCreator = false;

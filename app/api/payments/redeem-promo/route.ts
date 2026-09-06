@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     }
 
     const code = promoCode.trim().toUpperCase();
-    if (code !== 'FREE' && code !== 'SHREYAN') {
+    if (code !== 'DELT' && code !== 'SHREYAN') {
       return NextResponse.json({ error: 'Invalid or expired promo code' }, { status: 400 });
     }
 
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
     if (paymentError) {
       // If error is unique constraint violation on idempotency_key, it means it was already redeemed
       if (paymentError.code === '23505') { // Postgres unique violation code
-         return NextResponse.json({
+        return NextResponse.json({
           success: true,
           dealId: deal.id,
           status: 'completed',

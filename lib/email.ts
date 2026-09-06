@@ -23,6 +23,7 @@ export interface DealInvitationEmailPayload {
   dealPrice: number;
   dealCurrency: string;
   dealUrl: string;
+  dealCode?: string;
 }
 
 export interface PaymentConfirmationEmailPayload {
@@ -259,6 +260,7 @@ export async function sendDealInvitationEmail(
     dealPrice,
     dealCurrency,
     dealUrl,
+    dealCode,
   } = payload;
 
   const formattedAmount = `${dealCurrency === 'INR' ? '₹' : dealCurrency + ' '}${dealPrice.toLocaleString('en-IN')}`;
@@ -318,6 +320,7 @@ export async function sendDealInvitationEmail(
 
       <!-- CTA Button -->
       <div style="text-align: center; margin-bottom: 24px;">
+        ${dealCode ? `<div style="font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Deal Code</div><div style="font-size: 24px; font-weight: 700; font-family: monospace; letter-spacing: 2px; color: #0f172a; margin-bottom: 24px;">${escapeHtml(dealCode)}</div>` : ''}
         <a href="${dealUrl}" target="_blank" style="display: inline-block; background-color: #0f172a; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; padding: 14px 32px; border-radius: 8px; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);">
           Open Deal Workspace &rarr;
         </a>
@@ -325,7 +328,7 @@ export async function sendDealInvitationEmail(
 
       <!-- Plain Text Fallback Link -->
       <p style="font-size: 12px; color: #64748b; word-break: break-all; margin-bottom: 28px;">
-        Or copy and paste this link in your browser:<br>
+        Secure Client Portal Link (do not share):<br>
         <a href="${dealUrl}" style="color: #2563eb; text-decoration: underline;">${dealUrl}</a>
       </p>
 
@@ -344,7 +347,7 @@ export async function sendDealInvitationEmail(
 </html>
 `;
 
-  const text = `Hi ${clientName},\n\n${creatorName} has created a private Deal workspace for you on DELT for "${dealTitle}" (${formattedAmount}).\n\nOpen your deal here:\n${dealUrl}\n\nDELT`;
+  const text = `Hi ${clientName},\n\n${creatorName} has created a private Deal workspace for you on DELT for "${dealTitle}" (${formattedAmount}).\n\n${dealCode ? `Deal Code: ${dealCode}\n\n` : ''}Open your deal here:\n${dealUrl}\n\nDELT`;
 
   return sendRawEmail({
     to: clientEmail,

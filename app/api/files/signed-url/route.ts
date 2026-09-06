@@ -62,9 +62,12 @@ export async function POST(request: Request) {
     const admin = createAdminClient();
 
     // 1. Fetch deal to verify existence and retrieve expected email/status
-    let query = admin.from('deals').select('*').eq('id', dealId);
+    let query = admin.from('deals').select('*');
+    if (dealId) {
+      query = query.eq('id', dealId);
+    }
     if (token) {
-      query = query.eq('token', token);
+      query = query.or(`token.eq.${token},deal_code.eq.${token}`);
     }
     const { data: deal, error: dealError } = await query.maybeSingle();
 
@@ -82,7 +85,7 @@ export async function POST(request: Request) {
 
     // Check client session token
     const clientSessionHeader = request.headers.get('x-client-session-token');
-    const hasValidClientToken = (clientSessionHeader && deal.token)
+    const hasValidClientToken = clientSessionHeader
       ? verifyClientSessionToken(clientSessionHeader, deal.token, expectedClientEmail)
       : false;
 

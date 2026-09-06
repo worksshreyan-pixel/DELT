@@ -496,6 +496,7 @@ export default function ClientDealPage() {
       clientName={(deal as any).clientName || (deal as any).client_name || 'Client'}
       creatorName="Creator"
       viewerRole={viewerRole}
+      urlToken={token}
     />
   );
 }
@@ -510,12 +511,14 @@ function ClientPortal({
   clientName,
   creatorName,
   viewerRole = 'client',
+  urlToken,
 }: {
   deal: Deal;
   clientEmail: string;
   clientName: string;
   creatorName: string;
   viewerRole?: 'client' | 'creator';
+  urlToken: string;
 }) {
   const [currentDeal, setCurrentDeal] = useState<Deal>(deal);
   const [messages, setMessages] = useState<DealMessage[]>([]);
@@ -801,7 +804,7 @@ function ClientPortal({
     setMessages((prev) => [...prev, optMsg]);
 
     try {
-      const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${currentDeal.token}`) : null;
+      const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${urlToken}`) : null;
       const res = await fetch('/api/messages/send', {
         method: 'POST',
         headers: { 
@@ -847,7 +850,7 @@ function ClientPortal({
 
     setSubmittingProposal(true);
     try {
-      const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${currentDeal.token}`) : null;
+      const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${urlToken}`) : null;
       const res = await fetch('/api/negotiation/propose', {
         method: 'POST',
         headers: { 
@@ -901,7 +904,7 @@ function ClientPortal({
 
     setSubmittingProposal(true);
     try {
-      const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${currentDeal.token}`) : null;
+      const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${urlToken}`) : null;
       const res = await fetch('/api/negotiation/propose', {
         method: 'POST',
         headers: { 
@@ -954,7 +957,7 @@ function ClientPortal({
 
   async function handleAcceptProposal(proposal: PriceProposal) {
     try {
-      const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${currentDeal.token}`) : null;
+      const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${urlToken}`) : null;
       const res = await fetch('/api/negotiation/respond', {
         method: 'POST',
         headers: { 
@@ -991,7 +994,7 @@ function ClientPortal({
 
   async function handleDeclineProposal(proposal: PriceProposal) {
     try {
-      const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${currentDeal.token}`) : null;
+      const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${urlToken}`) : null;
       const res = await fetch('/api/negotiation/respond', {
         method: 'POST',
         headers: { 
@@ -1063,7 +1066,7 @@ function ClientPortal({
     setPaying(true);
     setPromoError('');
     try {
-      const savedToken = localStorage.getItem(`delt_client_session_${currentDeal.token}`);
+      const savedToken = localStorage.getItem(`delt_client_session_${urlToken}`);
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
       };
@@ -1130,7 +1133,7 @@ function ClientPortal({
     setPaying(true);
 
     try {
-      const savedToken = localStorage.getItem(`delt_client_session_${currentDeal.token}`);
+      const savedToken = localStorage.getItem(`delt_client_session_${urlToken}`);
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
       };
@@ -1283,7 +1286,7 @@ function ClientPortal({
   async function handleDownloadFile(filePath: string) {
     setDownloading(true);
     try {
-      const savedToken = localStorage.getItem(`delt_client_session_${currentDeal.token}`);
+      const savedToken = localStorage.getItem(`delt_client_session_${urlToken}`);
       const res = await fetch('/api/files/signed-url', {
         method: 'POST',
         headers: {
@@ -1328,7 +1331,7 @@ function ClientPortal({
 
     setDownloading(true);
     try {
-      const savedToken = localStorage.getItem(`delt_client_session_${currentDeal.token}`);
+      const savedToken = localStorage.getItem(`delt_client_session_${urlToken}`);
       for (const f of allFiles) {
         const res = await fetch('/api/files/signed-url', {
           method: 'POST',
@@ -1368,7 +1371,7 @@ function ClientPortal({
     if (previewLoadingFileId) return;
     setPreviewLoadingFileId(fileId);
     try {
-      const savedToken = localStorage.getItem(`delt_client_session_${currentDeal.token}`);
+      const savedToken = localStorage.getItem(`delt_client_session_${urlToken}`);
       const res = await fetch('/api/files/preview', {
         method: 'POST',
         headers: {

@@ -21,10 +21,12 @@ export async function POST(
 
     const admin = createAdminClient();
 
-    // 1. Fetch deal by id OR token
+    // 1. Fetch deal by id, token, or deal_code
     let query = admin.from('deals').select('*');
     if (idOrToken.startsWith('dlt_') || idOrToken.startsWith('dl_')) {
       query = query.eq('token', idOrToken);
+    } else if (idOrToken.startsWith('DLT-')) {
+      query = query.eq('deal_code', idOrToken);
     } else {
       query = query.eq('id', idOrToken);
     }

@@ -21,11 +21,11 @@ export async function POST(
 
     const admin = createAdminClient();
 
-    // 1. Fetch deal by token
+    // 1. Fetch deal by token or deal_code
     const { data: deal, error: dealError } = await admin
       .from('deals')
       .select('*')
-      .eq('token', token)
+      .or(`token.eq.${token},deal_code.eq.${token}`)
       .maybeSingle();
 
     if (dealError || !deal) {
@@ -105,11 +105,11 @@ export async function PATCH(
 
     const admin = createAdminClient();
 
-    // 1. Fetch deal by token
+    // 1. Fetch deal by token or deal_code
     const { data: deal, error: dealError } = await admin
       .from('deals')
-      .select('*')
-      .eq('token', token)
+      .select('id, token, creator_id')
+      .or(`token.eq.${token},deal_code.eq.${token}`)
       .maybeSingle();
 
     if (dealError || !deal) {
