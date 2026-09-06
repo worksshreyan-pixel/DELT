@@ -540,6 +540,12 @@ function ClientPortal({
   const [activeProposal, setActiveProposal] = useState<PriceProposal | null>(null);
   const [submittingProposal, setSubmittingProposal] = useState(false);
 
+  // Promo code state
+  const [promoCode, setPromoCode] = useState('');
+  const [promoApplied, setPromoApplied] = useState(false);
+  const [promoError, setPromoError] = useState('');
+  const [applyingPromo, setApplyingPromo] = useState(false);
+
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
   const [previewMimeType, setPreviewMimeType] = useState('');
@@ -1031,6 +1037,69 @@ function ClientPortal({
       alert('Deliverables approved! All project files are verified.');
     } catch (e) {
       console.error(e);
+    }
+  }
+
+  async function handleApplyPromo(e: React.FormEvent) {
+    e.preventDefault();
+    setPromoError('');
+    setApplyingPromo(true);
+
+    const code = promoCode.trim().toUpperCase();
+    if (code === 'FREE' || code === 'SHREYAN') {
+      setTimeout(() => {
+        setPromoApplied(true);
+        setApplyingPromo(false);
+      }, 500);
+    } else {
+      setTimeout(() => {
+        setPromoError('Invalid or expired promo code');
+        setApplyingPromo(false);
+      }, 500);
+    }
+  }
+
+  async function handleRedeemPromo() {
+    setPaying(true);
+    setPromoError('');
+    try {
+      const savedToken = localStorage.getItem(`delt_client_session_${currentDeal.token}`);
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      if (savedToken) {
+        headers['x-client-session-token'] = savedToken;
+      }
+
+      const res = await fetch('/api/payments/redeem-promo', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ dealId: currentDeal.id, token: currentDeal.token, promoCode }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setPromoError(data.error || 'Failed to redeem promo code');
+        setPaying(false);
+        return;
+      }
+
+      // Success
+      simulatePaymentInStore(currentDeal.id, `Promo ${promoCode.toUpperCase()} Applied`);
+      setCurrentDeal((prev) => ({
+        ...prev,
+        paymentStatus: 'paid',
+        status: 'completed',
+        progress: 100,
+      }));
+      setDeliverables((prev) => prev.map((d) => ({ ...d, status: 'approved' })));
+      setFileVersions((prev) => prev.map((v) => ({ ...v, status: 'approved', locked: false })));
+      setPaymentOpen(false);
+    } catch (err: any) {
+      console.error(err);
+      setPromoError('Network error redeeming promo');
+    } finally {
+      setPaying(false);
     }
   }
 
@@ -1811,10 +1880,48 @@ function ClientPortal({
                     <span className="text-sm text-muted-foreground">Project Amount</span>
                     <span className="text-sm font-semibold">{formatCurrency(currentDeal.price, currentDeal.currency)}</span>
                   </div>
+                  
+                  {/* Promo Code Section */}
+                  {!isPaid && !isClosed && (
+                    <div className="py-2 border-b border-border">
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <Input
+                          placeholder="Promo code (e.g. FREE)"
+                          value={promoCode}
+                          onChange={(e) => {
+                            setPromoCode(e.target.value);
+                            setPromoApplied(false);
+                            setPromoError('');
+                          }}
+                          disabled={promoApplied || applyingPromo || isReadOnly}
+                          className="h-9 flex-1"
+                        />
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={handleApplyPromo}
+                          disabled={!promoCode.trim() || promoApplied || applyingPromo || isReadOnly}
+                          className="h-9"
+                        >
+                          {applyingPromo ? 'Applying...' : promoApplied ? 'Applied' : 'Apply'}
+                        </Button>
+                      </div>
+                      {promoError && (
+                        <p className="text-xs text-destructive mt-1.5">{promoError}</p>
+                      )}
+                      {promoApplied && (
+                        <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1.5 flex items-center gap-1">
+                          <Check className="h-3 w-3" />
+                          Promo code applied. 100% discount.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between py-2">
                     <span className="text-sm font-medium">Amount Due</span>
                     <span className="text-lg font-display font-semibold">
-                      {isPaid ? formatCurrency(0, currentDeal.currency) : formatCurrency(currentDeal.price, currentDeal.currency)}
+                      {isPaid || promoApplied ? formatCurrency(0, currentDeal.currency) : formatCurrency(currentDeal.price, currentDeal.currency)}
                     </span>
                   </div>
 
@@ -1828,7 +1935,7 @@ function ClientPortal({
                       <DialogTrigger asChild>
                         <Button className="w-full gap-2 mt-2">
                           <CreditCard className="h-4 w-4" />
-                          Pay with Razorpay ({formatCurrency(currentDeal.price, currentDeal.currency)})
+                          {promoApplied ? 'Complete Free Order' : `Pay with Razorpay (${formatCurrency(currentDeal.price, currentDeal.currency)})`}
                         </Button>
                       </DialogTrigger>
                       <DialogContent>
@@ -1843,19 +1950,31 @@ function ClientPortal({
                             </div>
                             <div className="flex justify-between text-base font-semibold pt-2 border-t border-border">
                               <span>Total Amount:</span>
-                              <span>{formatCurrency(currentDeal.price, currentDeal.currency)}</span>
+                              <span>{promoApplied ? formatCurrency(0, currentDeal.currency) : formatCurrency(currentDeal.price, currentDeal.currency)}</span>
                             </div>
                           </div>
-                          <p className="text-xs text-muted-foreground leading-relaxed">
-                            Razorpay checkout handles Credit/Debit Cards, UPI, Netbanking, and Wallets. Files unlock instantly upon payment confirmation.
-                          </p>
+                          {promoApplied ? (
+                            <p className="text-xs text-emerald-600 dark:text-emerald-400 leading-relaxed">
+                              A 100% discount promo code has been applied. Click below to complete your order for free. Files will unlock instantly.
+                            </p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground leading-relaxed">
+                              Razorpay checkout handles Credit/Debit Cards, UPI, Netbanking, and Wallets. Files unlock instantly upon payment confirmation.
+                            </p>
+                          )}
+                          {promoError && (
+                            <div className="flex items-start gap-2 rounded-lg bg-destructive/10 p-3 text-xs text-destructive text-left">
+                              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                              <span>{promoError}</span>
+                            </div>
+                          )}
                         </div>
                         <DialogFooter>
                           <Button variant="outline" onClick={() => setPaymentOpen(false)}>
                             Cancel
                           </Button>
-                          <Button onClick={handleCompletePayment} disabled={paying}>
-                            {paying ? 'Processing Payment...' : `Confirm Pay ${formatCurrency(currentDeal.price, currentDeal.currency)}`}
+                          <Button onClick={promoApplied ? handleRedeemPromo : handleCompletePayment} disabled={paying}>
+                            {paying ? 'Processing...' : promoApplied ? 'Confirm Free Order' : `Confirm Pay ${formatCurrency(currentDeal.price, currentDeal.currency)}`}
                           </Button>
                         </DialogFooter>
                       </DialogContent>
