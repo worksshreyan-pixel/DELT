@@ -37,6 +37,7 @@ export async function POST(request: Request) {
       const payload = event.payload?.payment?.entity || event.payload?.order?.entity;
       const orderId = payload?.order_id || payload?.id;
       const paymentId = payload?.id;
+      const invoiceId = payload?.notes?.invoice_id;
 
       if (orderId) {
         // Fetch payment record
@@ -86,6 +87,17 @@ export async function POST(request: Request) {
               status: 'approved',
             })
             .eq('deal_id', payment.deal_id);
+
+          if (invoiceId) {
+            await supabase
+              .from('invoices')
+              .update({
+                status: 'paid',
+                amount_paid: payment.amount,
+                amount_due: 0,
+              })
+              .eq('id', invoiceId);
+          }
 
           // Notification
           if (payment.deals?.creator_id) {

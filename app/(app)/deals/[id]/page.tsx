@@ -28,6 +28,7 @@ export default function DealDetailPage() {
   const [fileVersions, setFileVersions] = useState<FileVersion[]>(() => store.fileVersions[actualDealId] || []);
   const [events, setEvents] = useState<DealEvent[]>(() => store.events[actualDealId] || []);
   const [payments, setPayments] = useState<Payment[]>(() => store.payments[actualDealId] || []);
+  const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(!deal);
 
   useEffect(() => {
@@ -87,14 +88,34 @@ export default function DealDetailPage() {
 
         if (currentDeal) {
           const fetchedId = currentDeal.id;
-          // Fetch child data in parallel
-          const [dbMsgs, dbProps, dbDelivs, dbVersions, dbEvents] = await Promise.all([
+          const [dbMsgs, dbProps, dbDelivs, dbVersions, dbEvents, dbInvoicesRaw] = await Promise.all([
             supabase.from('deal_messages').select('*').eq('deal_id', fetchedId).order('created_at', { ascending: true }),
             supabase.from('price_proposals').select('*').eq('deal_id', fetchedId).order('created_at', { ascending: true }),
             supabase.from('deliverables').select('*').eq('deal_id', fetchedId),
             supabase.from('file_versions').select('*').eq('deal_id', fetchedId).order('version', { ascending: true }),
-            supabase.from('deal_events').select('*').eq('deal_id', fetchedId).order('created_at', { ascending: false })
+            supabase.from('deal_events').select('*').eq('deal_id', fetchedId).order('created_at', { ascending: false }),
+            supabase.from('invoices').select('*, creator:profiles(*)').eq('deal_id', fetchedId).neq('status', 'draft').order('created_at', { ascending: false })
           ]);
+
+          let fetchedInvoices = dbInvoicesRaw.data || [];
+
+          if (fetchedInvoices.length === 0 && currentDeal.status === 'completed' && currentDeal.paymentStatus === 'paid') {
+            try {
+              const res = await fetch('/api/invoices/ensure', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dealId: fetchedId })
+              });
+              const json = await res.json();
+              if (json.invoice) {
+                const { data: genInvoice } = await supabase.from('invoices').select('*, creator:profiles(*)').eq('id', json.invoice.id).maybeSingle();
+                if (genInvoice) fetchedInvoices = [genInvoice];
+              }
+            } catch (e) {
+              console.error('Failed to ensure invoice', e);
+            }
+          }
+          setInvoices(fetchedInvoices);
 
           if (dbMsgs.data) {
             setMessages(dbMsgs.data.map((m: any) => ({
@@ -141,7 +162,7 @@ export default function DealDetailPage() {
             setFileVersions(dbVersions.data.map((v: any) => ({
               id: v.id,
               deliverableId: v.deliverable_id,
-              dealId: v.deal_id || actualDealId,
+              dealId: v.deal_id || currentDeal?.id || actualDealId,
               version: v.version,
               description: v.description,
               uploaderId: v.uploader_id || '',
@@ -176,19 +197,20 @@ export default function DealDetailPage() {
   }, [actualDealId, store.deals, store.payments]);
 
   useEffect(() => {
-    if (!actualDealId || !hasSupabasePublicConfig()) return;
+    if (!deal || !hasSupabasePublicConfig()) return;
 
+    const fetchedId = deal.id;
     const supabase = createClient();
     const channel = supabase
-      .channel(`deal-creator:${actualDealId}`)
+      .channel(`deal-creator:${fetchedId}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'deal_messages', filter: `deal_id=eq.${actualDealId}` },
+        { event: 'INSERT', schema: 'public', table: 'deal_messages', filter: `deal_id=eq.${fetchedId}` },
         (payload) => {
           const raw = payload.new as any;
           const formattedMsg = {
             id: raw.id,
-            dealId: raw.deal_id || raw.actualDealId || actualDealId,
+            dealId: raw.deal_id || raw.actualDealId || fetchedId,
             senderId: raw.sender_id || raw.senderId || 'user',
             senderName: raw.sender_name || raw.senderName || 'User',
             senderRole: raw.sender_role || raw.senderRole || 'client',
@@ -208,12 +230,12 @@ export default function DealDetailPage() {
       )
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'price_proposals', filter: `deal_id=eq.${actualDealId}` },
+        { event: '*', schema: 'public', table: 'price_proposals', filter: `deal_id=eq.${fetchedId}` },
         (payload) => {
           const raw = payload.new as any;
           const formattedProp: PriceProposal = {
             id: raw.id,
-            dealId: raw.deal_id || raw.actualDealId || actualDealId,
+            dealId: raw.deal_id || raw.dealId || fetchedId,
             direction: raw.direction,
             previousPrice: Number(raw.previous_price ?? raw.previousPrice ?? 0),
             proposedPrice: Number(raw.proposed_price ?? raw.proposedPrice ?? 0),
@@ -240,7 +262,7 @@ export default function DealDetailPage() {
       )
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'deals', filter: `id=eq.${actualDealId}` },
+        { event: 'UPDATE', schema: 'public', table: 'deals', filter: `id=eq.${fetchedId}` },
         (payload) => {
           const updated = payload.new as any;
           setDeal((prev) => {
@@ -261,7 +283,7 @@ export default function DealDetailPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [actualDealId]);
+  }, [deal?.id]);
 
   if (loading) {
     return (
@@ -307,6 +329,7 @@ export default function DealDetailPage() {
         milestones={[]}
         payments={payments}
         changeRequests={[]}
+        invoices={invoices}
       />
     </div>
   );

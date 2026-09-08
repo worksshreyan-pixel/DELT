@@ -30,6 +30,7 @@ import {
   RefreshCw,
   Settings,
   Eye,
+  FileText,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -44,6 +45,7 @@ import { PriceProposalCard } from '@/components/price-proposal-card';
 import { ChatMessageItem } from '@/components/chat-message';
 import { FileCard } from '@/components/file-card';
 import { Timeline } from '@/components/timeline-event';
+import { InvoicePreview } from '@/components/invoices/invoice-preview';
 import { EmptyState } from '@/components/empty-state';
 import { formatCurrency } from '@/lib/plans';
 import { createClient } from '@/lib/supabase/client';
@@ -74,6 +76,7 @@ interface DealWorkspaceProps {
   milestones: Milestone[];
   payments: Payment[];
   changeRequests: ChangeRequest[];
+  invoices?: any[];
 }
 
 export function DealWorkspace({
@@ -90,12 +93,14 @@ export function DealWorkspace({
   milestones,
   payments,
   changeRequests,
+  invoices = [],
 }: DealWorkspaceProps) {
   const router = useRouter();
   const [currentDeal, setCurrentDeal] = useState<Deal>(deal);
   const isPaidOrCompleted = currentDeal.paymentStatus === 'paid' || currentDeal.status === 'completed';
 
   const [localFileVersions, setLocalFileVersions] = useState<FileVersion[]>(fileVersions);
+  const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
   const [previewMimeType, setPreviewMimeType] = useState('');
@@ -352,6 +357,7 @@ export function DealWorkspace({
           </div>
           <div className="flex items-center gap-2">
             <DealStatusBadge status={currentDeal.status} />
+
             <Link href={`/deals/${currentDeal.id}/settings`}>
               <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5">
                 <Settings className="h-3.5 w-3.5" />
@@ -435,7 +441,7 @@ export function DealWorkspace({
         </div>
 
         <TabsContent value="overview" className="mt-4">
-          <OverviewTab deal={currentDeal} deliverables={deliverables} milestones={milestones} events={events} clientName={clientName} creatorName={creatorName} />
+          <OverviewTab deal={currentDeal} deliverables={deliverables} milestones={milestones} events={events} clientName={clientName} creatorName={creatorName} invoices={invoices} setInvoiceModalOpen={setInvoiceModalOpen} />
         </TabsContent>
         <TabsContent value="chat" className="mt-4">
           <ChatTab deal={currentDeal} messages={messages} proposals={proposals} creatorName={creatorName} isClosed={isClosed} />
@@ -444,7 +450,7 @@ export function DealWorkspace({
           <FilesTab deal={currentDeal} deliverables={deliverables} fileVersions={localFileVersions} changeRequests={changeRequests} isClosed={isClosed} handleViewPreview={handleViewPreview} handleRetryPreview={handleRetryPreview} previewLoadingFileId={previewLoadingFileId} />
         </TabsContent>
         <TabsContent value="payments" className="mt-4">
-          <PaymentsTab deal={currentDeal} payments={payments} />
+          <PaymentsTab deal={currentDeal} payments={payments} invoices={invoices} setInvoiceModalOpen={setInvoiceModalOpen} creator={{ name: creatorName }} client={{ name: clientName }} />
         </TabsContent>
         <TabsContent value="activity" className="mt-4">
           <ActivityTab events={events} />
@@ -496,6 +502,34 @@ export function DealWorkspace({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Invoice Modal */}
+      <Dialog open={invoiceModalOpen} onOpenChange={setInvoiceModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0">
+          <div className="sticky top-0 z-10 flex items-center justify-between bg-background border-b px-4 py-3">
+            <h2 className="text-lg font-semibold">Receipt</h2>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => window.print()}>
+                <Download className="h-4 w-4 mr-2" />
+                Save PDF
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setInvoiceModalOpen(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="p-4 sm:p-6 pb-12">
+            {invoices.length > 0 && (
+              <InvoicePreview
+                invoice={invoices.find(i => i.status !== 'draft')}
+                deal={currentDeal}
+                client={{ name: clientName, email: clientEmail }}
+                creator={{ name: creatorName }}
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -511,6 +545,8 @@ function OverviewTab({
   events,
   clientName,
   creatorName,
+  invoices,
+  setInvoiceModalOpen,
 }: {
   deal: Deal;
   deliverables: Deliverable[];
@@ -518,6 +554,8 @@ function OverviewTab({
   events: DealEvent[];
   clientName: string;
   creatorName: string;
+  invoices?: any[];
+  setInvoiceModalOpen?: (open: boolean) => void;
 }) {
   return (
     <div className="grid gap-6 lg:grid-cols-3">
@@ -590,6 +628,49 @@ function OverviewTab({
       </div>
 
       <div className="space-y-6">
+        {(() => {
+          const activeInvoice = invoices?.find(i => i.status !== 'draft');
+          if (!activeInvoice) return null;
+          const isInvoicePaid = activeInvoice.status === 'paid';
+          return (
+            <div className="bg-card rounded-xl border border-primary/20 bg-primary/5 p-4 sm:p-6 mb-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base font-semibold">Invoice</h3>
+                <span className="text-xs font-mono font-normal text-muted-foreground bg-background px-2 py-0.5 rounded-md border border-border">
+                  {activeInvoice.invoice_number}
+                </span>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">{isInvoicePaid ? 'Amount' : 'Amount due'}</p>
+                  <p className="text-2xl font-semibold tracking-tight">{formatCurrency(activeInvoice.total_amount, activeInvoice.currency)}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Status:</span>
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                    <Check className="h-3 w-3" /> Paid
+                  </span>
+                </div>
+                {isInvoicePaid && activeInvoice.paid_at && (
+                  <p className="text-xs text-muted-foreground">
+                    Paid on: {new Date(activeInvoice.paid_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </p>
+                )}
+                <div className="pt-3 border-t border-primary/10 grid grid-cols-2 gap-2">
+                  <Button variant="outline" className="w-full text-xs h-8 bg-background" onClick={() => setInvoiceModalOpen?.(true)}>
+                    <ExternalLink className="h-3 w-3 mr-1.5" />
+                    View
+                  </Button>
+                  <Button variant="default" className="w-full text-xs h-8" onClick={() => setInvoiceModalOpen?.(true)}>
+                    <FileText className="h-3 w-3 mr-1.5" />
+                    Receipt
+                  </Button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Client Information</CardTitle>
@@ -791,25 +872,23 @@ function ChatTab({
     setCounterOpen(false);
   }
 
-  async function handleDeclineProposal() {
-    if (activeProposal) {
-      try {
-        await fetch('/api/negotiation/respond', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            proposalId: activeProposal.id,
-            dealId: deal.id,
-            response: 'decline',
-            responderName: creatorName,
-            responderRole: 'creator',
-          }),
-        });
-      } catch (e) {
-        console.error(e);
-      }
-      respondToProposalInStore(deal.id, activeProposal.id, 'decline', creatorName);
+  async function handleDeclineProposal(proposal: PriceProposal) {
+    try {
+      await fetch('/api/negotiation/respond', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          proposalId: proposal.id,
+          dealId: deal.id,
+          response: 'decline',
+          responderName: creatorName,
+          responderRole: 'creator',
+        }),
+      });
+    } catch (e) {
+      console.error(e);
     }
+    respondToProposalInStore(deal.id, proposal.id, 'decline', creatorName);
     setProposalOpen(false);
     setCounterOpen(false);
   }
@@ -836,7 +915,7 @@ function ChatTab({
                       perspective="creator"
                       onAccept={() => handleAcceptProposal(proposal)}
                       onCounter={() => { setActiveProposal(proposal); setCounterOpen(true); }}
-                      onDecline={handleDeclineProposal}
+                      onDecline={() => handleDeclineProposal(proposal)}
                     />
                   </div>
                 </ChatMessageItem>
@@ -947,7 +1026,7 @@ function ChatTab({
                   proposal={pendingProposal}
                   currency={deal.currency}
                   onAccept={() => handleAcceptProposal(pendingProposal)}
-                  onDecline={handleDeclineProposal}
+                  onDecline={() => handleDeclineProposal(pendingProposal)}
                   disabled={submittingProposal}
                   onSubmit={async (price, reason) => {
                     setSubmittingProposal(true);
@@ -1585,46 +1664,93 @@ function FilesTab({
 function PaymentsTab({
   deal,
   payments,
+  invoices,
+  creator,
+  client,
+  setInvoiceModalOpen,
 }: {
   deal: Deal;
   payments: Payment[];
+  invoices?: any[];
+  creator?: any;
+  client?: any;
+  setInvoiceModalOpen?: (open: boolean) => void;
 }) {
   const isPaid = deal.paymentStatus === 'paid';
+  const activeInvoice = invoices?.find(i => i.status !== 'draft');
 
   return (
     <div className="grid gap-6 lg:grid-cols-3">
       <div className="lg:col-span-2 space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Payment Summary</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between p-4 rounded-lg bg-muted/30 border border-border">
-              <div>
-                <p className="text-xs text-muted-foreground">Total Deal Amount</p>
-                <p className="text-2xl font-display font-semibold mt-0.5">{formatCurrency(deal.price, deal.currency)}</p>
-              </div>
-              <PaymentStatusBadge status={deal.paymentStatus} />
+        {isPaid && activeInvoice ? (
+          <div className="bg-card rounded-xl border border-primary/20 bg-primary/5 p-4 sm:p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-semibold">Invoice</h3>
+              <span className="text-xs font-mono font-normal text-muted-foreground bg-background px-2 py-0.5 rounded-md border border-border">
+                {activeInvoice.invoice_number}
+              </span>
             </div>
-
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between py-2 border-b border-border">
-                <span className="text-muted-foreground">Payment Status</span>
-                <span className="font-medium capitalize">{deal.paymentStatus}</span>
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs text-muted-foreground mb-0.5">{activeInvoice.status === 'paid' ? 'Amount' : 'Amount due'}</p>
+                <p className="text-2xl font-semibold tracking-tight">{formatCurrency(activeInvoice.total_amount, activeInvoice.currency)}</p>
               </div>
-              <div className="flex justify-between py-2 border-b border-border">
-                <span className="text-muted-foreground">Currency</span>
-                <span className="font-medium">{deal.currency}</span>
-              </div>
-              <div className="flex justify-between py-2">
-                <span className="text-muted-foreground">Deliverables Access</span>
-                <span className="font-medium">
-                  {isPaid ? 'Unlocked (All files downloadable)' : 'Locked until payment confirmed'}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Status:</span>
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                  <Check className="h-3 w-3" /> Paid
                 </span>
               </div>
+              {activeInvoice.status === 'paid' && activeInvoice.paid_at && (
+                <p className="text-xs text-muted-foreground">
+                  Paid on: {new Date(activeInvoice.paid_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </p>
+              )}
+              <div className="pt-3 border-t border-primary/10 grid grid-cols-2 gap-2">
+                <Button variant="outline" className="w-full text-xs h-8 bg-background" onClick={() => setInvoiceModalOpen?.(true)}>
+                  <ExternalLink className="h-3 w-3 mr-1.5" />
+                  View
+                </Button>
+                <Button variant="default" className="w-full text-xs h-8" onClick={() => setInvoiceModalOpen?.(true)}>
+                  <FileText className="h-3 w-3 mr-1.5" />
+                  Receipt
+                </Button>
+              </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Payment Summary</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-muted/30 border border-border">
+                <div>
+                  <p className="text-xs text-muted-foreground">Total Deal Amount</p>
+                  <p className="text-2xl font-display font-semibold mt-0.5">{formatCurrency(deal.price, deal.currency)}</p>
+                </div>
+                <PaymentStatusBadge status={deal.paymentStatus} />
+              </div>
+
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between py-2 border-b border-border">
+                  <span className="text-muted-foreground">Payment Status</span>
+                  <span className="font-medium capitalize">{deal.paymentStatus}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b border-border">
+                  <span className="text-muted-foreground">Currency</span>
+                  <span className="font-medium">{deal.currency}</span>
+                </div>
+                <div className="flex justify-between py-2">
+                  <span className="text-muted-foreground">Deliverables Access</span>
+                  <span className="font-medium">
+                    {isPaid ? 'Unlocked (All files downloadable)' : 'Locked until payment confirmed'}
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <div>

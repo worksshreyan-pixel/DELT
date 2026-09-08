@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Mail,
@@ -22,6 +23,9 @@ import {
   AlertCircle,
   RefreshCw,
   Eye,
+  FileText,
+  ExternalLink,
+  X,
 } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,11 +41,13 @@ import { PriceProposalCard } from '@/components/price-proposal-card';
 import { ChatMessageItem } from '@/components/chat-message';
 import { FileCard } from '@/components/file-card';
 import { Timeline } from '@/components/timeline-event';
+import { InvoicePreview } from '@/components/invoices/invoice-preview';
 import { EmptyState } from '@/components/empty-state';
 import { formatCurrency } from '@/lib/plans';
 import { createClient } from '@/lib/supabase/client';
 import { hasSupabasePublicConfig } from '@/lib/env';
 import { addMessageToStore, addProposalToStore, respondToProposalInStore, simulatePaymentInStore } from '@/lib/app-store';
+import { cn } from '@/lib/utils';
 import type { Deal, DealMessage, PriceProposal, DealEvent, Deliverable, FileVersion } from '@/lib/types';
 
 function loadRazorpayScript(): Promise<boolean> {
@@ -405,8 +411,8 @@ export default function ClientDealPage() {
                           {isSending
                             ? 'Sending Code...'
                             : cooldown > 0
-                            ? `Resend available in ${cooldown}s`
-                            : 'Send OTP'}
+                              ? `Resend available in ${cooldown}s`
+                              : 'Send OTP'}
                           {!isSending && cooldown <= 0 && <ArrowRight className="h-4 w-4" />}
                         </Button>
                       </div>
@@ -526,6 +532,7 @@ function ClientPortal({
   const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
   const [fileVersions, setFileVersions] = useState<FileVersion[]>([]);
   const [events, setEvents] = useState<DealEvent[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
 
   const isReadOnly = viewerRole === 'creator';
 
@@ -549,6 +556,7 @@ function ClientPortal({
   const [promoError, setPromoError] = useState('');
   const [applyingPromo, setApplyingPromo] = useState(false);
 
+  const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
   const [previewMimeType, setPreviewMimeType] = useState('');
@@ -643,6 +651,33 @@ function ClientPortal({
           description: e.description,
           createdAt: e.created_at,
         })));
+      }
+
+      // Invoices
+      const { data: dbInvoices } = await supabase.from('invoices').select('*, creator:profiles(*)').eq('deal_id', deal.id).neq('status', 'draft').order('created_at', { ascending: false });
+      if (dbInvoices && dbInvoices.length > 0) {
+        setInvoices(dbInvoices);
+      } else if (deal.status === 'completed' && deal.paymentStatus === 'paid') {
+        // Auto-reconcile if invoice is missing
+        try {
+          const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${deal.token}`) : null;
+          
+          const res = await fetch('/api/invoices/ensure', {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              ...(savedToken ? { 'x-client-session-token': savedToken } : {})
+            },
+            body: JSON.stringify({ dealId: deal.id })
+          });
+          const json = await res.json();
+          if (json.invoice) {
+            const { data: genInvoice } = await supabase.from('invoices').select('*, creator:profiles(*)').eq('id', json.invoice.id).maybeSingle();
+            if (genInvoice) setInvoices([genInvoice]);
+          }
+        } catch (e) {
+          console.error('Failed to ensure invoice', e);
+        }
       }
     }
 
@@ -807,7 +842,7 @@ function ClientPortal({
       const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${urlToken}`) : null;
       const res = await fetch('/api/messages/send', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           ...(savedToken ? { 'x-client-session-token': savedToken } : {}),
         },
@@ -853,7 +888,7 @@ function ClientPortal({
       const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${urlToken}`) : null;
       const res = await fetch('/api/negotiation/propose', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           ...(savedToken ? { 'x-client-session-token': savedToken } : {}),
         },
@@ -907,7 +942,7 @@ function ClientPortal({
       const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${urlToken}`) : null;
       const res = await fetch('/api/negotiation/propose', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           ...(savedToken ? { 'x-client-session-token': savedToken } : {}),
         },
@@ -960,7 +995,7 @@ function ClientPortal({
       const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${urlToken}`) : null;
       const res = await fetch('/api/negotiation/respond', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           ...(savedToken ? { 'x-client-session-token': savedToken } : {}),
         },
@@ -997,7 +1032,7 @@ function ClientPortal({
       const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${urlToken}`) : null;
       const res = await fetch('/api/negotiation/respond', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           ...(savedToken ? { 'x-client-session-token': savedToken } : {}),
         },
@@ -1049,7 +1084,7 @@ function ClientPortal({
     setApplyingPromo(true);
 
     const code = promoCode.trim().toUpperCase();
-    if (code === 'FREE' || code === 'SHREYAN') {
+    if (code === 'DELT' || code === 'SHREYAN') {
       setTimeout(() => {
         setPromoApplied(true);
         setApplyingPromo(false);
@@ -1141,10 +1176,11 @@ function ClientPortal({
         headers['x-client-session-token'] = savedToken;
       }
 
+      const activeInvoice = invoices.find(i => i.status !== 'draft');
       const orderRes = await fetch('/api/payments/create-order', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ dealId: currentDeal.id, token: currentDeal.token }),
+        body: JSON.stringify({ dealId: currentDeal.id, token: currentDeal.token, metadata: { invoice_id: activeInvoice?.id } }),
       });
 
       if (!orderRes.ok) {
@@ -1166,6 +1202,7 @@ function ClientPortal({
             paymentId: `pay_${Date.now()}`,
             signature: 'verified_sig',
             dealId: currentDeal.id,
+            invoiceId: activeInvoice?.id,
             demo: true,
           }),
         });
@@ -1223,6 +1260,7 @@ function ClientPortal({
                   paymentId: response.razorpay_payment_id,
                   signature: response.razorpay_signature,
                   dealId: currentDeal.id,
+                  invoiceId: activeInvoice?.id,
                   demo: false,
                 }),
               });
@@ -1449,7 +1487,9 @@ function ClientPortal({
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="chat">Chat</TabsTrigger>
               <TabsTrigger value="files">Files</TabsTrigger>
-              <TabsTrigger value="payment">Payment</TabsTrigger>
+              <TabsTrigger value="payment" className="relative pr-6">
+                {invoices.length > 0 ? 'Receipt' : 'Payment'}
+              </TabsTrigger>
               <TabsTrigger value="activity">Activity</TabsTrigger>
             </TabsList>
           </div>
@@ -1518,30 +1558,115 @@ function ClientPortal({
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader><CardTitle className="text-base">Client Access</CardTitle></CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <Avatar className="h-10 w-10">
-                      <AvatarFallback className="bg-primary text-primary-foreground text-sm font-semibold">{getInitials(clientName)}</AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{clientName}</p>
-                      <p className="text-xs text-muted-foreground truncate">{clientEmail}</p>
+              <div className="space-y-4">
+                <Card>
+                  <CardHeader><CardTitle className="text-base">Client Access</CardTitle></CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <Avatar className="h-10 w-10">
+                        <AvatarFallback className="bg-primary text-primary-foreground text-sm font-semibold">{getInitials(clientName)}</AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{clientName}</p>
+                        <p className="text-xs text-muted-foreground truncate">{clientEmail}</p>
+                      </div>
                     </div>
-                  </div>
-                  <div className="pt-2 border-t border-border space-y-1 text-xs text-muted-foreground">
-                    <p className="flex items-center gap-1.5">
-                      <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
-                      <span>Access verified via Email OTP</span>
-                    </p>
-                    <p className="flex items-center gap-1.5">
-                      <Lock className="h-3.5 w-3.5" />
-                      <span>Encrypted communication</span>
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
+                    <div className="pt-2 border-t border-border space-y-1 text-xs text-muted-foreground">
+                      <p className="flex items-center gap-1.5">
+                        <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+                        <span>Access verified via Email OTP</span>
+                      </p>
+                      <p className="flex items-center gap-1.5">
+                        <Lock className="h-3.5 w-3.5" />
+                        <span>Encrypted communication</span>
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {(() => {
+                  const activeInvoice = invoices.find(i => i.status !== 'draft');
+                  if (!activeInvoice) return null;
+                  const isInvoicePaid = activeInvoice.status === 'paid';
+
+                  return (
+                    <Card className="border-primary/20 bg-primary/5">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base flex items-center justify-between">
+                          <span>Invoice</span>
+                          <span className="text-xs font-mono font-normal text-muted-foreground bg-background px-2 py-0.5 rounded-md border border-border">
+                            {activeInvoice.invoice_number}
+                          </span>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-0.5">
+                            {isInvoicePaid ? 'Amount' : 'Amount due'}
+                          </p>
+                          <p className="text-2xl font-semibold tracking-tight">
+                            {formatCurrency(activeInvoice.total_amount, activeInvoice.currency)}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">Status:</span>
+                          {isInvoicePaid ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                              <Check className="h-3 w-3" /> Paid
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                              <Check className="h-3 w-3" /> Paid
+                            </span>
+                          )}
+                        </div>
+
+                        {isInvoicePaid && activeInvoice.paid_at && (
+                          <p className="text-xs text-muted-foreground">
+                            Paid on: {new Date(activeInvoice.paid_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </p>
+                        )}
+
+                        <div className="pt-3 border-t border-primary/10 grid grid-cols-2 gap-2">
+                          <Button
+                            variant="outline"
+                            className="w-full text-xs h-8 bg-background"
+                            onClick={() => setInvoiceModalOpen(true)}
+                          >
+                            <ExternalLink className="h-3 w-3 mr-1.5" />
+                            View
+                          </Button>
+                          {isInvoicePaid ? (
+                            <Button
+                              variant="default"
+                              className="w-full text-xs h-8"
+                              onClick={() => {
+                                // Fallback to printing the invoice view window
+                                const win = window.open(`/deal/${urlToken}/invoice/${activeInvoice.id}?print=true`, '_blank');
+                                if (win) {
+                                  win.onload = () => { win.print(); };
+                                }
+                              }}
+                            >
+                              <Download className="h-3 w-3 mr-1.5" />
+                              Download
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="default"
+                              className="w-full text-xs h-8"
+                              onClick={() => document.querySelector<HTMLButtonElement>('button[value="payment"]')?.click()}
+                            >
+                              Pay Now
+                            </Button>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })()}
+              </div>
             </div>
           </TabsContent>
 
@@ -1877,13 +2002,58 @@ function ClientPortal({
           <TabsContent value="payment" className="mt-4">
             <div className="grid gap-4 lg:grid-cols-3">
               <Card className="lg:col-span-2">
-                <CardHeader><CardTitle className="text-base">Payment Details</CardTitle></CardHeader>
+                <CardHeader><CardTitle className="text-base">{invoices.length > 0 ? 'Invoice Details' : 'Payment Details'}</CardTitle></CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="flex items-center justify-between py-2 border-b border-border">
-                    <span className="text-sm text-muted-foreground">Project Amount</span>
-                    <span className="text-sm font-semibold">{formatCurrency(currentDeal.price, currentDeal.currency)}</span>
-                  </div>
-                  
+                  {invoices.length > 0 ? (
+                    (() => {
+                      const activeInvoice = invoices.find(i => i.status !== 'draft');
+                      if (!activeInvoice) return null;
+                      const isInvoicePaid = activeInvoice.status === 'paid';
+                      return (
+                        <div className="bg-card rounded-xl border border-primary/20 bg-primary/5 p-4 sm:p-6 mb-6">
+                          <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-base font-semibold">Invoice</h3>
+                            <span className="text-xs font-mono font-normal text-muted-foreground bg-background px-2 py-0.5 rounded-md border border-border">
+                              {activeInvoice.invoice_number}
+                            </span>
+                          </div>
+                          <div className="space-y-4">
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-0.5">{isInvoicePaid ? 'Amount' : 'Amount due'}</p>
+                              <p className="text-2xl font-semibold tracking-tight">{formatCurrency(activeInvoice.total_amount, activeInvoice.currency)}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground">Status:</span>
+                              <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                                <Check className="h-3 w-3" /> Paid
+                              </span>
+                            </div>
+                            {isInvoicePaid && activeInvoice.paid_at && (
+                              <p className="text-xs text-muted-foreground">
+                                Paid on: {new Date(activeInvoice.paid_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                              </p>
+                            )}
+                            <div className="pt-3 border-t border-primary/10 grid grid-cols-2 gap-2">
+                              <Button variant="outline" className="w-full text-xs h-8 bg-background" onClick={() => setInvoiceModalOpen(true)}>
+                                <ExternalLink className="h-3 w-3 mr-1.5" />
+                                View
+                              </Button>
+                              <Button variant="default" className="w-full text-xs h-8" onClick={() => setInvoiceModalOpen(true)}>
+                                <FileText className="h-3 w-3 mr-1.5" />
+                                Receipt
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    <div className="flex items-center justify-between py-2 border-b border-border">
+                      <span className="text-sm text-muted-foreground">Project Amount</span>
+                      <span className="text-sm font-semibold">{formatCurrency(currentDeal.price, currentDeal.currency)}</span>
+                    </div>
+                  )}
+
                   {/* Promo Code Section */}
                   {!isPaid && !isClosed && (
                     <div className="py-2 border-b border-border">
@@ -1921,12 +2091,14 @@ function ClientPortal({
                     </div>
                   )}
 
-                  <div className="flex items-center justify-between py-2">
-                    <span className="text-sm font-medium">Amount Due</span>
-                    <span className="text-lg font-display font-semibold">
-                      {isPaid || promoApplied ? formatCurrency(0, currentDeal.currency) : formatCurrency(currentDeal.price, currentDeal.currency)}
-                    </span>
-                  </div>
+                  {!invoices.length && (
+                    <div className="flex items-center justify-between py-2">
+                      <span className="text-sm font-medium">Amount Due</span>
+                      <span className="text-lg font-display font-semibold">
+                        {isPaid || promoApplied ? formatCurrency(0, currentDeal.currency) : formatCurrency(currentDeal.price, currentDeal.currency)}
+                      </span>
+                    </div>
+                  )}
 
                   {!isPaid && !isClosed && isReadOnly ? (
                     <Button className="w-full gap-2 mt-2" disabled>
@@ -1934,60 +2106,76 @@ function ClientPortal({
                       Pay with Razorpay (Creator Preview)
                     </Button>
                   ) : !isPaid && !isClosed ? (
-                    <Dialog open={paymentOpen} onOpenChange={setPaymentOpen}>
-                      <DialogTrigger asChild>
-                        <Button className="w-full gap-2 mt-2">
-                          <CreditCard className="h-4 w-4" />
-                          {promoApplied ? 'Complete Free Order' : `Pay with Razorpay (${formatCurrency(currentDeal.price, currentDeal.currency)})`}
+                    <div className="flex flex-col sm:flex-row gap-2 mt-2">
+                      {invoices.length > 0 && (
+                        <Button variant="outline" className="w-full sm:flex-1 gap-2" onClick={() => setInvoiceModalOpen(true)}>
+                          <FileText className="h-4 w-4" />
+                          View Receipt
                         </Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Complete Deal Payment</DialogTitle>
-                        </DialogHeader>
-                        <div className="space-y-4 py-2">
-                          <div className="rounded-lg bg-muted/40 p-3 space-y-1">
-                            <div className="flex justify-between text-sm">
-                              <span className="text-muted-foreground">Deal:</span>
-                              <span className="font-medium">{currentDeal.title}</span>
+                      )}
+                      <Dialog open={paymentOpen} onOpenChange={setPaymentOpen}>
+                        <DialogTrigger asChild>
+                          <Button className={`w-full gap-2 ${invoices.length > 0 ? 'sm:flex-1' : ''}`}>
+                            <CreditCard className="h-4 w-4" />
+                            {promoApplied ? 'Complete Free Order' : `Pay ${invoices.length > 0 ? formatCurrency(invoices.find(i => i.status !== 'draft')?.total_amount || currentDeal.price, currentDeal.currency) : formatCurrency(currentDeal.price, currentDeal.currency)}`}
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Complete Deal Payment</DialogTitle>
+                          </DialogHeader>
+                          <div className="space-y-4 py-2">
+                            <div className="rounded-lg bg-muted/40 p-3 space-y-1">
+                              <div className="flex justify-between text-sm">
+                                <span className="text-muted-foreground">Deal:</span>
+                                <span className="font-medium">{currentDeal.title}</span>
+                              </div>
+                              <div className="flex justify-between text-base font-semibold pt-2 border-t border-border">
+                                <span>Total Amount:</span>
+                                <span>{promoApplied ? formatCurrency(0, currentDeal.currency) : invoices.length > 0 ? formatCurrency(invoices.find(i => i.status !== 'draft')?.total_amount || currentDeal.price, currentDeal.currency) : formatCurrency(currentDeal.price, currentDeal.currency)}</span>
+                              </div>
                             </div>
-                            <div className="flex justify-between text-base font-semibold pt-2 border-t border-border">
-                              <span>Total Amount:</span>
-                              <span>{promoApplied ? formatCurrency(0, currentDeal.currency) : formatCurrency(currentDeal.price, currentDeal.currency)}</span>
-                            </div>
+                            {promoApplied ? (
+                              <p className="text-xs text-emerald-600 dark:text-emerald-400 leading-relaxed">
+                                A 100% discount promo code has been applied. Click below to complete your order for free. Files will unlock instantly.
+                              </p>
+                            ) : (
+                              <p className="text-xs text-muted-foreground leading-relaxed">
+                                Razorpay checkout handles Credit/Debit Cards, UPI, Netbanking, and Wallets. Files unlock instantly upon payment confirmation.
+                              </p>
+                            )}
+                            {promoError && (
+                              <div className="flex items-start gap-2 rounded-lg bg-destructive/10 p-3 text-xs text-destructive text-left">
+                                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                                <span>{promoError}</span>
+                              </div>
+                            )}
                           </div>
-                          {promoApplied ? (
-                            <p className="text-xs text-emerald-600 dark:text-emerald-400 leading-relaxed">
-                              A 100% discount promo code has been applied. Click below to complete your order for free. Files will unlock instantly.
-                            </p>
-                          ) : (
-                            <p className="text-xs text-muted-foreground leading-relaxed">
-                              Razorpay checkout handles Credit/Debit Cards, UPI, Netbanking, and Wallets. Files unlock instantly upon payment confirmation.
-                            </p>
-                          )}
-                          {promoError && (
-                            <div className="flex items-start gap-2 rounded-lg bg-destructive/10 p-3 text-xs text-destructive text-left">
-                              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                              <span>{promoError}</span>
-                            </div>
-                          )}
-                        </div>
-                        <DialogFooter>
-                          <Button variant="outline" onClick={() => setPaymentOpen(false)}>
-                            Cancel
-                          </Button>
-                          <Button onClick={promoApplied ? handleRedeemPromo : handleCompletePayment} disabled={paying}>
-                            {paying ? 'Processing...' : promoApplied ? 'Confirm Free Order' : `Confirm Pay ${formatCurrency(currentDeal.price, currentDeal.currency)}`}
-                          </Button>
-                        </DialogFooter>
-                      </DialogContent>
-                    </Dialog>
+                          <DialogFooter>
+                            <Button variant="outline" onClick={() => setPaymentOpen(false)}>
+                              Cancel
+                            </Button>
+                            <Button onClick={promoApplied ? handleRedeemPromo : handleCompletePayment} disabled={paying}>
+                              {paying ? 'Processing...' : promoApplied ? 'Confirm Free Order' : `Confirm Pay ${invoices.length > 0 ? formatCurrency(invoices.find(i => i.status !== 'draft')?.total_amount || currentDeal.price, currentDeal.currency) : formatCurrency(currentDeal.price, currentDeal.currency)}`}
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
                   ) : isPaid ? (
-                    <div className="flex items-center gap-2 rounded-lg bg-emerald-50 dark:bg-emerald-950 p-3 mt-2">
-                      <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                      <span className="text-sm text-emerald-700 dark:text-emerald-300 font-medium">
-                        Payment confirmed. All deliverable files are unlocked for download.
-                      </span>
+                    <div className="flex flex-col gap-2 mt-2">
+                      <div className="flex items-center gap-2 rounded-lg bg-emerald-50 dark:bg-emerald-950 p-3">
+                        <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                        <span className="text-sm text-emerald-700 dark:text-emerald-300 font-medium">
+                          Payment confirmed. All deliverable files are unlocked for download.
+                        </span>
+                      </div>
+                      {invoices.length > 0 && (
+                        <Button variant="outline" className="w-full gap-2" onClick={() => setInvoiceModalOpen(true)}>
+                          <FileText className="h-4 w-4" />
+                          View Receipt
+                        </Button>
+                      )}
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 p-3 mt-2 text-xs text-zinc-600 dark:text-zinc-400">
@@ -2005,8 +2193,8 @@ function ClientPortal({
                     {isPaid
                       ? 'Payment complete. You can download all deliverables under the Files tab.'
                       : isClosed
-                      ? 'Deal is closed.'
-                      : 'Files will be unlocked automatically once payment is confirmed.'}
+                        ? 'Deal is closed.'
+                        : 'Files will be unlocked automatically once payment is confirmed.'}
                   </p>
                 </CardContent>
               </Card>
@@ -2071,6 +2259,34 @@ function ClientPortal({
             <Button size="sm" variant="outline" onClick={() => setPreviewModalOpen(false)}>
               Close Preview
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Invoice Modal */}
+      <Dialog open={invoiceModalOpen} onOpenChange={setInvoiceModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0">
+          <div className="sticky top-0 z-10 flex items-center justify-between bg-background border-b px-4 py-3">
+            <h2 className="text-lg font-semibold">Receipt</h2>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => window.print()}>
+                <Download className="h-4 w-4 mr-2" />
+                Save PDF
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setInvoiceModalOpen(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="p-4 sm:p-6 pb-12">
+            {invoices.length > 0 && (
+              <InvoicePreview
+                invoice={invoices.find(i => i.status !== 'draft')}
+                deal={currentDeal}
+                client={{ name: clientName, email: clientEmail }}
+                creator={invoices.find(i => i.status !== 'draft')?.creator}
+              />
+            )}
           </div>
         </DialogContent>
       </Dialog>

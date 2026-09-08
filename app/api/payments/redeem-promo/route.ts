@@ -111,6 +111,7 @@ export async function POST(request: Request) {
       platformFeeOverride: 0,
       processingFeeOverride: 0,
       netAmountOverride: 0,
+      promoCode: code,
     });
 
     console.log('[PROMO_REDEEM_SUCCESS]');

@@ -63,7 +63,10 @@ export async function POST(
         user.id === creatorId ||
         (user.email && creator?.email && user.email.toLowerCase() === creator.email.toLowerCase())
       );
-    } else if (hasValidClientToken) {
+    }
+    
+    // Always respect a valid client token, even if a mismatched Supabase user is logged in
+    if (hasValidClientToken) {
       isAuthorizedClient = true;
       userEmail = expectedClientEmail;
     }

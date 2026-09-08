@@ -77,6 +77,7 @@ export async function POST(request: Request) {
 
     // Import and call reusable function
     const { finalizeDealPayment } = await import('@/lib/deals/completion');
+    
     await finalizeDealPayment({
       supabase,
       deal,

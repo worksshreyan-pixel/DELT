@@ -9,7 +9,8 @@ export async function POST(request: Request) {
   console.log('[PAYMENT_CREATE_START]');
   try {
     const body = await request.json();
-    const { dealId, token } = body;
+    const { dealId, token, metadata } = body;
+    const invoiceId = metadata?.invoice_id;
 
     if (!dealId && !token) {
       return NextResponse.json({ error: 'Deal ID or token is required' }, { status: 400 });
@@ -56,12 +57,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized client access.' }, { status: 403 });
     }
 
-    if (deal.payment_status === 'paid') {
+    let invoice = null;
+    if (invoiceId) {
+      const { data: inv } = await supabase.from('invoices').select('*').eq('id', invoiceId).maybeSingle();
+      if (inv) invoice = inv;
+    }
+
+    if (!invoice && deal.payment_status === 'paid') {
       return NextResponse.json({ error: 'Deal is already paid' }, { status: 400 });
     }
 
-    const amountInCurrency = Number(deal.price);
-    const currency = deal.currency || 'INR';
+    const amountInCurrency = invoice ? Number(invoice.amount_due) : Number(deal.price);
+    const currency = invoice ? invoice.currency : (deal.currency || 'INR');
     const amountInSubunits = Math.round(amountInCurrency * 100); // e.g. 25000 INR = 2500000 paise
 
     const feeBreakdown = calculateDealFees(amountInCurrency, currency as any);
@@ -81,6 +88,7 @@ export async function POST(request: Request) {
           dealId: deal.id,
           dealTitle: deal.title,
           clientEmail: deal.client_email,
+          ...(invoiceId ? { invoice_id: invoiceId } : {}),
         },
       });
       console.log('[PAYMENT_RAZORPAY_ORDER_CREATED]');

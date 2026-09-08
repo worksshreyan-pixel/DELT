@@ -105,6 +105,9 @@ export function getPlan(planId: PlanId): PlanConfig {
 }
 
 export function formatCurrency(amount: number, currency: 'INR' | 'USD' | 'EUR' | 'GBP' = 'INR'): string {
+  if (typeof amount !== 'number') {
+    throw new TypeError(`formatCurrency requires a valid number, but received: ${typeof amount} (${amount})`);
+  }
   const symbols: Record<string, string> = { INR: '₹', USD: '$', EUR: '€', GBP: '£' };
   const symbol = symbols[currency] || currency;
   if (currency === 'INR') {

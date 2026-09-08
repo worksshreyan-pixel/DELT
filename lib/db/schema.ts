@@ -380,6 +380,67 @@ export const dealOtps = pgTable(
 );
 
 // ------------------------------------------------------------------------------
+// 13. Invoices (Deal Invoicing System)
+// ------------------------------------------------------------------------------
+export const invoices = pgTable(
+  'invoices',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    invoiceNumber: text('invoice_number').notNull().unique(),
+    dealId: uuid('deal_id')
+      .notNull()
+      .references(() => deals.id, { onDelete: 'cascade' }),
+    creatorId: text('creator_id')
+      .notNull()
+      .references(() => profiles.id, { onDelete: 'cascade' }),
+    clientId: uuid('client_id').references(() => clients.id, { onDelete: 'set null' }),
+    status: text('status').notNull().default('draft'), // 'draft', 'sent', 'viewed', 'partially_paid', 'paid', 'overdue', 'cancelled'
+    type: text('type').notNull().default('standard'), // 'standard', 'deposit', 'final', 'milestone', 'partial'
+    currency: text('currency').notNull().default('INR'),
+    issueDate: timestamp('issue_date', { withTimezone: true }),
+    dueDate: timestamp('due_date', { withTimezone: true }),
+    subtotal: numeric('subtotal').notNull().default('0'),
+    discountAmount: numeric('discount_amount').notNull().default('0'),
+    taxAmount: numeric('tax_amount').notNull().default('0'),
+    totalAmount: numeric('total_amount').notNull().default('0'),
+    amountPaid: numeric('amount_paid').notNull().default('0'),
+    amountDue: numeric('amount_due').notNull().default('0'),
+    notes: text('notes'),
+    terms: text('terms'),
+    promoCode: text('promo_code'),
+    paymentId: text('payment_id'),
+    orderId: text('order_id'),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    dealIdIdx: uniqueIndex('idx_invoices_deal_id').on(table.dealId),
+    creatorIdIdx: index('idx_invoices_creator_id').on(table.creatorId),
+    invoiceNumberIdx: uniqueIndex('idx_invoices_number').on(table.invoiceNumber),
+    statusIdx: index('idx_invoices_status').on(table.status),
+  })
+);
+
+export const invoiceItems = pgTable(
+  'invoice_items',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    invoiceId: uuid('invoice_id')
+      .notNull()
+      .references(() => invoices.id, { onDelete: 'cascade' }),
+    description: text('description').notNull(),
+    quantity: integer('quantity').notNull().default(1),
+    unitPrice: numeric('unit_price').notNull().default('0'),
+    lineTotal: numeric('line_total').notNull().default('0'),
+    sortOrder: integer('sort_order').notNull().default(0),
+  },
+  (table) => ({
+    invoiceIdIdx: index('idx_invoice_items_invoice_id').on(table.invoiceId),
+  })
+);
+
+// ------------------------------------------------------------------------------
 // Relations Definitions for Drizzle Relational Queries
 // ------------------------------------------------------------------------------
 export const profilesRelations = relations(profiles, ({ many, one }) => ({
@@ -395,6 +456,7 @@ export const profilesRelations = relations(profiles, ({ many, one }) => ({
   }),
   transactions: many(transactions),
   notifications: many(notifications),
+  invoices: many(invoices),
 }));
 
 export const clientsRelations = relations(clients, ({ one, many }) => ({
@@ -403,6 +465,7 @@ export const clientsRelations = relations(clients, ({ one, many }) => ({
     references: [profiles.id],
   }),
   deals: many(deals),
+  invoices: many(invoices),
 }));
 
 export const dealsRelations = relations(deals, ({ one, many }) => ({
@@ -423,6 +486,7 @@ export const dealsRelations = relations(deals, ({ one, many }) => ({
   payments: many(payments),
   transactions: many(transactions),
   otps: many(dealOtps),
+  invoices: many(invoices),
 }));
 
 export const deliverablesRelations = relations(deliverables, ({ one, many }) => ({
@@ -478,5 +542,28 @@ export const transactionsRelations = relations(transactions, ({ one }) => ({
   creator: one(profiles, {
     fields: [transactions.creatorId],
     references: [profiles.id],
+  }),
+}));
+
+export const invoicesRelations = relations(invoices, ({ one, many }) => ({
+  deal: one(deals, {
+    fields: [invoices.dealId],
+    references: [deals.id],
+  }),
+  creator: one(profiles, {
+    fields: [invoices.creatorId],
+    references: [profiles.id],
+  }),
+  client: one(clients, {
+    fields: [invoices.clientId],
+    references: [clients.id],
+  }),
+  items: many(invoiceItems),
+}));
+
+export const invoiceItemsRelations = relations(invoiceItems, ({ one }) => ({
+  invoice: one(invoices, {
+    fields: [invoiceItems.invoiceId],
+    references: [invoices.id],
   }),
 }));

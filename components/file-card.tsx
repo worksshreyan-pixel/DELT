@@ -42,8 +42,8 @@ export function FileCard({ file, locked }: FileCardProps) {
       <div className={cn('flex h-10 w-10 items-center justify-center rounded-lg shrink-0', locked ? 'bg-muted' : 'bg-primary/5')}>
         {locked ? <Lock className="h-4 w-4 text-muted-foreground" /> : <Icon className="h-4 w-4 text-primary" />}
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{file.name}</p>
+      <div className="flex-1 min-w-0 overflow-hidden">
+        <p className="text-sm font-medium truncate" title={file.name}>{file.name}</p>
         <div className="flex items-center gap-2 mt-0.5">
           <p className="text-xs text-muted-foreground">{formatBytes(file.size)}</p>
           {file.previewStatus === 'ready' && (

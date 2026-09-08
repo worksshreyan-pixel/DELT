@@ -14,6 +14,7 @@ export interface FinalizePaymentParams {
   platformFeeOverride?: number;
   processingFeeOverride?: number;
   netAmountOverride?: number;
+  promoCode?: string;
 }
 
 /**
@@ -32,7 +33,13 @@ export async function finalizeDealPayment({
   platformFeeOverride,
   processingFeeOverride,
   netAmountOverride,
+  promoCode,
 }: FinalizePaymentParams) {
+  // 0. Idempotency Check
+  if (deal.payment_status === 'paid' || deal.status === 'completed') {
+    return;
+  }
+
   const now = new Date().toISOString();
 
   // 1. Mark Deal completed and paid
@@ -88,6 +95,40 @@ export async function finalizeDealPayment({
     net_amount: txNetAmount,
     state: 'paid',
     date: now,
+  });
+
+  // 3.5. Create Finalized Invoice
+  // Determine exact financial snapshot
+  const originalAmount = Number(deal.price);
+  const finalAmount = amountOverride !== undefined ? amountOverride : originalAmount;
+  const discountAmount = originalAmount - finalAmount;
+
+  // Generate short unique invoice number (e.g. INV-XDGPRD9E)
+  const randomChars = Math.random().toString(36).substring(2, 10).toUpperCase();
+  const invoiceNumber = `INV-${randomChars}`;
+
+  await supabase.from('invoices').insert({
+    invoice_number: invoiceNumber,
+    deal_id: deal.id,
+    creator_id: deal.creator_id,
+    client_id: deal.client_id,
+    status: 'paid',
+    type: 'standard',
+    currency: deal.currency,
+    issue_date: now,
+    due_date: now,
+    subtotal: originalAmount,
+    discount_amount: discountAmount,
+    tax_amount: 0,
+    total_amount: finalAmount,
+    amount_paid: finalAmount,
+    amount_due: 0,
+    promo_code: promoCode || null,
+    payment_id: paymentId || null,
+    order_id: orderId || null,
+    paid_at: now,
+    created_at: now,
+    updated_at: now,
   });
 
   // 4. Create audit timeline event
