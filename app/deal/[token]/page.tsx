@@ -2296,6 +2296,18 @@ function ClientPortal({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Printable Invoice - always in DOM, only visible when printing */}
+      <div className="hidden print:block invoice-document">
+        {invoices.length > 0 && (
+          <InvoicePreview
+            invoice={invoices.find(i => i.status !== 'draft')}
+            deal={currentDeal}
+            client={{ name: clientName, email: clientEmail }}
+            creator={invoices.find(i => i.status !== 'draft')?.creator}
+          />
+        )}
+      </div>
     </div>
   );
 }
