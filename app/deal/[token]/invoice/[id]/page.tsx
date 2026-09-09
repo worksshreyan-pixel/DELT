@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { InvoicePreview } from '@/components/invoices/invoice-preview';
+import { printWithFilename } from '@/lib/print-utils';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, CheckCircle } from 'lucide-react';
 
@@ -79,7 +80,10 @@ export default function ClientInvoicePage() {
           </Button>
           
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => window.print()}>
+            <Button variant="outline" onClick={() => {
+              const code = invoice?.invoice_code || invoice?.invoice_number || 'UNKNOWN';
+              printWithFilename(`DELT-${code}-INVOICE`);
+            }}>
               Print / Save PDF
             </Button>
             <div className="flex items-center text-emerald-600 font-bold gap-2 px-4 py-2 bg-emerald-50 rounded-lg">

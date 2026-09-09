@@ -55,6 +55,7 @@ import { useRouter } from 'next/navigation';
 import { cn, serializeDescription, parseDescription } from '@/lib/utils';
 import { uploadQueue, type UploadTask } from '@/lib/upload-queue';
 import { addMessageToStore, addProposalToStore, respondToProposalInStore, permanentlyDeleteDealInStore, closeDealInStore } from '@/lib/app-store';
+import { printWithFilename } from '@/lib/print-utils';
 import type { Deal, DealMessage, PriceProposal, DealEvent, FileVersion, Deliverable, Milestone, Payment, ChangeRequest } from '@/lib/types';
 
 function getInitials(name: string) {
@@ -509,7 +510,12 @@ export function DealWorkspace({
           <div className="sticky top-0 z-10 flex items-center justify-between bg-background border-b px-4 py-3">
             <h2 className="text-lg font-semibold">Receipt</h2>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => window.print()}>
+              <Button variant="outline" size="sm" onClick={() => {
+                const activeInvoice = invoices?.find(i => i.status !== 'draft');
+                if (!activeInvoice) return;
+                const code = activeInvoice.invoice_code || activeInvoice.invoice_number || 'UNKNOWN';
+                printWithFilename(`DELT-${code}-INVOICE`);
+              }}>
                 <Download className="h-4 w-4 mr-2" />
                 Save PDF
               </Button>
@@ -530,6 +536,18 @@ export function DealWorkspace({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Printable Invoice - always in DOM, only visible when printing */}
+      <div className="hidden print:block invoice-document">
+        {invoices.length > 0 && (
+          <InvoicePreview
+            invoice={invoices.find(i => i.status !== 'draft')}
+            deal={currentDeal}
+            client={{ name: clientName, email: clientEmail }}
+            creator={{ name: creatorName }}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -661,9 +679,14 @@ function OverviewTab({
                     <ExternalLink className="h-3 w-3 mr-1.5" />
                     View
                   </Button>
-                  <Button variant="default" className="w-full text-xs h-8" onClick={() => setInvoiceModalOpen?.(true)}>
-                    <FileText className="h-3 w-3 mr-1.5" />
-                    Receipt
+                  <Button variant="default" className="w-full text-xs h-8" onClick={() => {
+                    const activeInvoice = invoices?.find(i => i.status !== 'draft');
+                    if (!activeInvoice) return;
+                    const code = activeInvoice.invoice_code || activeInvoice.invoice_number || 'UNKNOWN';
+                    printWithFilename(`DELT-${code}-INVOICE`);
+                  }}>
+                    <Download className="h-3 w-3 mr-1.5" />
+                    Download
                   </Button>
                 </div>
               </div>
@@ -1711,9 +1734,14 @@ function PaymentsTab({
                   <ExternalLink className="h-3 w-3 mr-1.5" />
                   View
                 </Button>
-                <Button variant="default" className="w-full text-xs h-8" onClick={() => setInvoiceModalOpen?.(true)}>
-                  <FileText className="h-3 w-3 mr-1.5" />
-                  Receipt
+                <Button variant="default" className="w-full text-xs h-8" onClick={() => {
+                  const activeInvoice = invoices?.find(i => i.status !== 'draft');
+                  if (!activeInvoice) return;
+                  const code = activeInvoice.invoice_code || activeInvoice.invoice_number || 'UNKNOWN';
+                  printWithFilename(`DELT-${code}-INVOICE`);
+                }}>
+                  <Download className="h-3 w-3 mr-1.5" />
+                  Download
                 </Button>
               </div>
             </div>

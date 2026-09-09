@@ -45,6 +45,7 @@ import { InvoicePreview } from '@/components/invoices/invoice-preview';
 import { EmptyState } from '@/components/empty-state';
 import { formatCurrency } from '@/lib/plans';
 import { createClient } from '@/lib/supabase/client';
+import { printWithFilename } from '@/lib/print-utils';
 import { hasSupabasePublicConfig } from '@/lib/env';
 import { addMessageToStore, addProposalToStore, respondToProposalInStore, simulatePaymentInStore } from '@/lib/app-store';
 import { cn } from '@/lib/utils';
@@ -1642,11 +1643,8 @@ function ClientPortal({
                               variant="default"
                               className="w-full text-xs h-8"
                               onClick={() => {
-                                // Fallback to printing the invoice view window
-                                const win = window.open(`/deal/${urlToken}/invoice/${activeInvoice.id}?print=true`, '_blank');
-                                if (win) {
-                                  win.onload = () => { win.print(); };
-                                }
+                                const code = activeInvoice.invoice_code || activeInvoice.invoice_number || 'UNKNOWN';
+                                printWithFilename(`DELT-${code}-INVOICE`);
                               }}
                             >
                               <Download className="h-3 w-3 mr-1.5" />
@@ -2038,9 +2036,12 @@ function ClientPortal({
                                 <ExternalLink className="h-3 w-3 mr-1.5" />
                                 View
                               </Button>
-                              <Button variant="default" className="w-full text-xs h-8" onClick={() => setInvoiceModalOpen(true)}>
-                                <FileText className="h-3 w-3 mr-1.5" />
-                                Receipt
+                              <Button variant="default" className="w-full text-xs h-8" onClick={() => {
+                                const code = activeInvoice.invoice_code || activeInvoice.invoice_number || 'UNKNOWN';
+                                printWithFilename(`DELT-${code}-INVOICE`);
+                              }}>
+                                <Download className="h-3 w-3 mr-1.5" />
+                                Download
                               </Button>
                             </div>
                           </div>
@@ -2269,7 +2270,12 @@ function ClientPortal({
           <div className="sticky top-0 z-10 flex items-center justify-between bg-background border-b px-4 py-3">
             <h2 className="text-lg font-semibold">Receipt</h2>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => window.print()}>
+              <Button variant="outline" size="sm" onClick={() => {
+                const activeInvoice = invoices.find(i => i.status !== 'draft');
+                if (!activeInvoice) return;
+                const code = activeInvoice.invoice_code || activeInvoice.invoice_number || 'UNKNOWN';
+                printWithFilename(`DELT-${code}-INVOICE`);
+              }}>
                 <Download className="h-4 w-4 mr-2" />
                 Save PDF
               </Button>

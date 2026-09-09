@@ -139,3 +139,32 @@
 ::selection {
   background: hsl(var(--foreground) / 0.12);
 }
+
+@media print {
+  body *:not(:has(.invoice-document)):not(.invoice-document):not(.invoice-document *) {
+    display: none !important;
+  }
+  
+  body, html, *:has(.invoice-document) {
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  
+  .invoice-document {
+    display: block !important;
+    visibility: visible !important;
+    position: static !important;
+    width: 100% !important;
+  }
+
+  @page {
+    size: auto;
+    margin: 10mm;
+  }
+}
