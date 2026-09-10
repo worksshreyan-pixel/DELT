@@ -147,7 +147,7 @@ export default function ClientDealPage() {
           if (json.clientEmail) {
             setEmail(json.clientEmail);
           }
-          if (json.error) {
+          if (json.error && json.error !== 'Unauthorized.') {
             setError(json.error);
           }
         }
@@ -281,6 +281,17 @@ export default function ClientDealPage() {
 
   async function handleSignOutAndSwitch() {
     try {
+      const savedToken = localStorage.getItem(`delt_client_session_${token}`);
+      
+      // Hit the logout endpoint to clear the HttpOnly cookie and revoke DB session
+      await fetch(`/api/deals/${encodeURIComponent(token)}/logout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(savedToken ? { 'x-client-session-token': savedToken } : {}),
+        },
+      });
+
       localStorage.removeItem(`delt_client_session_${token}`);
       const supabase = createClient();
       await supabase.auth.signOut();

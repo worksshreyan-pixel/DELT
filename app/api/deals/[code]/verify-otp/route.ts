@@ -38,7 +38,7 @@ export async function POST(
     // Set the HttpOnly cookie
     if (result.rawSessionToken) {
       const cookieStore = await cookies();
-      cookieStore.set(`delt_client_session`, result.rawSessionToken, {
+      cookieStore.set(`delt_client_session_${result.deal.id}`, result.rawSessionToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',

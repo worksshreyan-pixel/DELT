@@ -106,7 +106,7 @@ export async function requireClientDealAccess(request: Request, dealCode: string
 
   // 1. Check HttpOnly Cookie (Primary)
   const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get(`delt_client_session`);
+  const sessionCookie = cookieStore.get(`delt_client_session_${deal.id}`);
   const admin = createAdminClient();
 
   if (sessionCookie && sessionCookie.value) {
