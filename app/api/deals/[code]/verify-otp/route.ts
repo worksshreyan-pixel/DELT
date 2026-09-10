@@ -1,16 +1,17 @@
 import { NextResponse } from 'next/server';
 import { verifyDealOtp } from '@/lib/otp';
+import { cookies } from 'next/headers';
 
 let verifyRequestCount = 0;
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ token: string }> }
+  { params }: { params: Promise<{ code: string }> }
 ) {
   try {
-    const { token } = await params;
-    if (!token) {
-      return NextResponse.json({ error: 'Deal token is required.' }, { status: 400 });
+    const { code } = await params;
+    if (!code) {
+      return NextResponse.json({ error: 'Deal code is required.' }, { status: 400 });
     }
 
     const body = await request.json();
@@ -25,27 +26,25 @@ export async function POST(
     }
 
     verifyRequestCount++;
-    const result = (await verifyDealOtp(token, email, otp)) as any;
-
-    console.log(`[OTP_VERIFY]
-traceId=${result.otpTraceId || 'unknown'}
-dealId=${result.dealId || 'unknown'}
-normalizedEmail=${email.trim().toLowerCase()}
-lookupStarted=${result.lookupStarted || 'unknown'}
-matchingRowFound=${result.matchingRowFound || false}
-matchingRowId=${result.matchingRowId || 'none'}
-matchingRowCreatedAt=${result.matchingRowCreatedAt || 'none'}
-matchingRowExpiresAt=${result.matchingRowExpiresAt || 'none'}
-matchingRowVerified=${result.matchingRowVerified || false}
-matchingRowAttempts=${result.matchingRowAttempts || 0}
-hashComparisonResult=${result.hashComparisonResult || false}
-verificationResult=${result.verificationResult || 'unknown'}`);
+    const result = (await verifyDealOtp(code, email, otp)) as any;
 
     if (!result.valid) {
       return NextResponse.json(
         { error: result.error || 'Invalid verification code.' },
         { status: 401 }
       );
+    }
+
+    // Set the HttpOnly cookie
+    if (result.rawSessionToken) {
+      const cookieStore = await cookies();
+      cookieStore.set(`delt_client_session`, result.rawSessionToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 7 * 24 * 60 * 60, // 7 days
+      });
     }
 
     return NextResponse.json({

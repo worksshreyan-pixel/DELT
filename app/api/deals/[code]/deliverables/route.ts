@@ -2,40 +2,26 @@ import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
+import { requireCreatorDealAccess } from '@/lib/deal-auth';
+
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ token: string }> }
+  { params }: { params: Promise<{ code: string }> }
 ) {
   try {
-    const { token } = await params;
-    if (!token) {
-      return NextResponse.json({ error: 'Deal token is required.' }, { status: 400 });
+    const { code } = await params;
+    if (!code) {
+      return NextResponse.json({ error: 'Deal code is required' }, { status: 400 });
     }
 
-    const supabase = await createServerSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized. Please sign in.' }, { status: 401 });
+    const resolution = await requireCreatorDealAccess(code);
+    if (!resolution.authorized || !resolution.deal) {
+      return NextResponse.json({ error: resolution.error || 'Unauthorized' }, { status: 403 });
     }
 
     const admin = createAdminClient();
-
-    // 1. Fetch deal by token or deal_code
-    const { data: deal, error: dealError } = await admin
-      .from('deals')
-      .select('*')
-      .or(`token.eq.${token},deal_code.eq.${token}`)
-      .maybeSingle();
-
-    if (dealError || !deal) {
-      return NextResponse.json({ error: 'Deal not found.' }, { status: 404 });
-    }
-
-    // 2. Authorize creator
-    if (deal.creator_id !== user.id) {
-      return NextResponse.json({ error: 'Only the creator of this Deal can add deliverables.' }, { status: 403 });
-    }
+    const deal = resolution.deal;
+    const user = { id: deal.creatorId, user_metadata: { displayName: resolution.creator?.display_name || 'Creator' } };
 
     const body = await request.json();
     const { name, description } = body;
@@ -88,38 +74,22 @@ export async function POST(
 
 export async function PATCH(
   request: Request,
-  { params }: { params: Promise<{ token: string }> }
+  { params }: { params: Promise<{ code: string }> }
 ) {
   try {
-    const { token } = await params;
-    if (!token) {
-      return NextResponse.json({ error: 'Deal token is required.' }, { status: 400 });
+    const { code } = await params;
+    if (!code) {
+      return NextResponse.json({ error: 'Deal code is required' }, { status: 400 });
     }
 
-    const supabase = await createServerSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized. Please sign in.' }, { status: 401 });
+    const resolution = await requireCreatorDealAccess(code);
+    if (!resolution.authorized || !resolution.deal) {
+      return NextResponse.json({ error: resolution.error || 'Unauthorized' }, { status: 403 });
     }
 
     const admin = createAdminClient();
-
-    // 1. Fetch deal by token or deal_code
-    const { data: deal, error: dealError } = await admin
-      .from('deals')
-      .select('id, token, creator_id')
-      .or(`token.eq.${token},deal_code.eq.${token}`)
-      .maybeSingle();
-
-    if (dealError || !deal) {
-      return NextResponse.json({ error: 'Deal not found.' }, { status: 404 });
-    }
-
-    // 2. Authorize creator
-    if (deal.creator_id !== user.id) {
-      return NextResponse.json({ error: 'Only the creator of this Deal can modify deliverables.' }, { status: 403 });
-    }
+    const deal = resolution.deal;
+    const user = { id: deal.creatorId, user_metadata: { displayName: resolution.creator?.display_name || 'Creator' } };
 
     const body = await request.json();
     const { action, deliverableId, name, description } = body;

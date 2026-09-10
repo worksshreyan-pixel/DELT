@@ -1,49 +1,25 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { requireCreatorDealAccess } from '@/lib/deal-auth';
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ token: string }> }
+  { params }: { params: Promise<{ code: string }> }
 ) {
   try {
-    const { token: idOrToken } = await params;
-    if (!idOrToken) {
-      return NextResponse.json({ error: 'Deal ID or token is required.' }, { status: 400 });
+    const { code } = await params;
+    if (!code) {
+      return NextResponse.json({ error: 'Deal code is required' }, { status: 400 });
     }
 
-    const supabase = await createServerSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized. Please sign in.' }, { status: 401 });
+    const resolution = await requireCreatorDealAccess(code);
+    if (!resolution.authorized || !resolution.deal) {
+      return NextResponse.json({ error: resolution.error || 'Unauthorized' }, { status: 403 });
     }
 
     const admin = createAdminClient();
-
-    // 1. Fetch deal by id, token, or deal_code
-    let query = admin.from('deals').select('*');
-    if (idOrToken.startsWith('dlt_') || idOrToken.startsWith('dl_')) {
-      query = query.eq('token', idOrToken);
-    } else if (idOrToken.startsWith('DLT-')) {
-      query = query.eq('deal_code', idOrToken);
-    } else {
-      query = query.eq('id', idOrToken);
-    }
-
-    const { data: deal, error: dealError } = await query.maybeSingle();
-
-    if (dealError || !deal) {
-      return NextResponse.json({ error: 'Deal not found.' }, { status: 404 });
-    }
-
-    // 2. Authorize creator
-    if (deal.creator_id !== user.id) {
-      return NextResponse.json(
-        { error: 'Only the creator of this Deal can close and delete it.' },
-        { status: 403 }
-      );
-    }
+    const deal = resolution.deal;
 
     const dealId = deal.id;
     const now = new Date().toISOString();
@@ -94,8 +70,8 @@ export async function POST(
     await admin.from('deal_events').insert({
       deal_id: dealId,
       type: 'deal_closed',
-      actor_id: user.id,
-      actor_name: user.user_metadata?.displayName || 'Creator',
+      actor_id: deal.creatorId,
+      actor_name: resolution.creator?.display_name || 'Creator',
       actor_role: 'creator',
       description: `Deal "${deal.title}" closed by creator. Files entered a ${retentionDays}-day retention period.`,
     });

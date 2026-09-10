@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -274,7 +274,7 @@ export function DealSettings({
     setSaveSuccess(false);
 
     try {
-      const res = await fetch(`/api/deals/${currentDeal.token}/update`, {
+      const res = await fetch(`/api/deals/${currentDeal.dealCode || currentDeal.token}/update`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -326,7 +326,7 @@ export function DealSettings({
     setAddDelivErr('');
 
     try {
-      const res = await fetch(`/api/deals/${currentDeal.token}/deliverables`, {
+      const res = await fetch(`/api/deals/${currentDeal.dealCode || currentDeal.token}/deliverables`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -359,7 +359,7 @@ export function DealSettings({
     setRenameDelivErr('');
 
     try {
-      const res = await fetch(`/api/deals/${currentDeal.token}/deliverables`, {
+      const res = await fetch(`/api/deals/${currentDeal.dealCode || currentDeal.token}/deliverables`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -391,7 +391,7 @@ export function DealSettings({
     setDeleteDelivErr('');
 
     try {
-      const res = await fetch(`/api/deals/${currentDeal.token}/deliverables`, {
+      const res = await fetch(`/api/deals/${currentDeal.dealCode || currentDeal.token}/deliverables`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -533,7 +533,7 @@ export function DealSettings({
     setCloseError('');
 
     try {
-      const res = await fetch(`/api/deals/${currentDeal.id}/close`, {
+      const res = await fetch(`/api/deals/${currentDeal.dealCode || currentDeal.id}/close`, {
         method: 'POST',
       });
 
@@ -562,7 +562,7 @@ export function DealSettings({
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-5">
         <div className="flex items-center gap-3">
-          <Link href={`/deals/${currentDeal.id}`}>
+          <Link href={`/deals/${currentDeal.dealCode || currentDeal.id}`}>
             <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg">
               <ArrowLeft className="h-4 w-4" />
             </Button>
@@ -573,7 +573,7 @@ export function DealSettings({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Link href={`/deals/${currentDeal.id}`}>
+          <Link href={`/deals/${currentDeal.dealCode || currentDeal.id}`}>
             <Button size="sm" variant="outline" className="text-xs">
               Back to Workspace
             </Button>
@@ -979,7 +979,7 @@ export function DealSettings({
                       className="text-xs"
                       onClick={async () => {
                         try {
-                          const res = await fetch(`/api/deals/${currentDeal.token}/resend-invite`, { method: 'POST' });
+                          const res = await fetch(`/api/deals/${currentDeal.dealCode || currentDeal.token}/resend-invite`, { method: 'POST' });
                           if (res.ok) alert('Invitation email resent successfully!');
                           else alert('Failed to resend invite.');
                         } catch (e) {

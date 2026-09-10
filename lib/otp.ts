@@ -71,6 +71,7 @@ export interface VerifyOtpResult {
   matchingRowAttempts?: number;
   hashComparisonResult?: boolean;
   verificationResult?: string;
+  rawSessionToken?: string;
 }
 
 // In-memory store used exclusively for Creator Signup OTP
@@ -816,18 +817,34 @@ export async function verifyDealOtp(
     timestamp: new Date().toISOString()
   }));
 
-  // 7. Generate signed Client Session Token
+  // 7. Generate new Database-backed Persistent Client Session
+  const rawSessionToken = crypto.randomBytes(32).toString('hex');
+  const sessionTokenHash = crypto.createHash('sha256').update(rawSessionToken).digest('hex');
+  const sessionExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+  try {
+    await admin.from('client_access_sessions').insert({
+      deal_id: deal.id,
+      client_email: normalizedEmail,
+      session_token_hash: sessionTokenHash,
+      expires_at: sessionExpiresAt.toISOString(),
+      status: 'active'
+    });
+  } catch (err) {
+    console.error('[Session Insert Error]', err);
+  }
+
+  // Generate legacy signed Client Session Token for backward compatibility during rollout
   const sessionPayload = {
     dealId: deal.id,
     dealToken: deal.token,
     clientEmail: normalizedEmail,
     verifiedAt: Date.now(),
-    expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
+    expiresAt: sessionExpiresAt.getTime(),
   };
 
   const payloadJson = JSON.stringify(sessionPayload);
   const payloadB64 = Buffer.from(payloadJson).toString('base64url');
-  // Sign using dedicated client session token secret
   const signature = crypto
     .createHmac('sha256', CLIENT_SESSION_TOKEN_SECRET)
     .update(payloadB64)
@@ -863,7 +880,8 @@ export async function verifyDealOtp(
     matchingRowVerified: activeOtp.verified,
     matchingRowAttempts: activeOtp.attempts,
     hashComparisonResult: true,
-    verificationResult: 'SUCCESS'
+    verificationResult: 'SUCCESS',
+    rawSessionToken
   };
 }
 

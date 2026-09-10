@@ -77,7 +77,7 @@ function getInitials(name?: string) {
 
 export default function ClientDealPage() {
   const params = useParams();
-  const token = params.token as string;
+  const token = params.identifier as string;
 
   const [deal, setDeal] = useState<Deal | null>(null);
   const [dealMeta, setDealMeta] = useState<{ title?: string; clientEmail?: string; creatorName?: string } | null>(null);

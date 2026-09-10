@@ -3,12 +3,12 @@ import { requestDealOtp } from '@/lib/otp';
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ token: string }> }
+  { params }: { params: Promise<{ code: string }> }
 ) {
   try {
-    const { token } = await params;
-    if (!token) {
-      return NextResponse.json({ error: 'Deal token is required.' }, { status: 400 });
+    const { code } = await params;
+    if (!code) {
+      return NextResponse.json({ error: 'Deal code is required.' }, { status: 400 });
     }
 
     const body = await request.json();
@@ -18,7 +18,7 @@ export async function POST(
       return NextResponse.json({ error: 'Email address is required.' }, { status: 400 });
     }
 
-    const result = (await requestDealOtp(token, email)) as any;
+    const result = (await requestDealOtp(code, email)) as any;
     const requestSource = request.headers.get('user-agent') || 'unknown';
 
     console.log(`[OTP_REQUEST]

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { generateDealToken, getDealPublicUrl } from '@/lib/deal-url';
+import { generateDealToken, generateDealCode, getClientDealUrl } from '@/lib/deal-url';
 import { sendDealInvitationEmail } from '@/lib/email';
 import { serializeDescription } from '@/lib/utils';
 
@@ -196,7 +196,7 @@ export async function POST(request: Request) {
     let dealError: any = null;
     
     for (let attempt = 0; attempt < 5; attempt++) {
-      const dealCode = `DLT-${Array.from({length: 8}, () => 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'[Math.floor(Math.random() * 36)]).join('')}`;
+      const dealCode = generateDealCode();
       
       const { data, error } = await admin
         .from('deals')
@@ -324,7 +324,7 @@ export async function POST(request: Request) {
     }
 
     // 9. Send Client Invitation Email
-    const canonicalDealUrl = getDealPublicUrl(deal.deal_code || deal.token);
+    const canonicalDealUrl = getClientDealUrl(deal.deal_code);
     const creatorDisplayName = user.user_metadata?.displayName || user.email?.split('@')[0] || 'Creator';
 
     console.log(`[INVITATION_EMAIL_START]`, JSON.stringify({

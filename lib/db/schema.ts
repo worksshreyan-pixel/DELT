@@ -95,6 +95,7 @@ export const deals = pgTable(
   {
     id: uuid('id').defaultRandom().primaryKey(),
     token: text('token').notNull().unique(),
+    dealCode: text('deal_code').notNull().unique(),
     creatorId: text('creator_id')
       .notNull()
       .references(() => profiles.id, { onDelete: 'cascade' }),
@@ -422,6 +423,31 @@ export const invoices = pgTable(
   })
 );
 
+// ------------------------------------------------------------------------------
+// 14. Client Access Sessions (Persistent Authentication)
+// ------------------------------------------------------------------------------
+export const clientAccessSessions = pgTable(
+  'client_access_sessions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    dealId: uuid('deal_id')
+      .notNull()
+      .references(() => deals.id, { onDelete: 'cascade' }),
+    clientEmail: text('client_email').notNull(),
+    sessionTokenHash: text('session_token_hash').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    status: text('status').notNull().default('active'),
+  },
+  (table) => ({
+    dealIdIdx: index('idx_client_access_sessions_deal_id').on(table.dealId),
+    emailIdx: index('idx_client_access_sessions_email').on(table.clientEmail),
+    hashIdx: index('idx_client_access_sessions_hash').on(table.sessionTokenHash),
+  })
+);
+
 export const invoiceItems = pgTable(
   'invoice_items',
   {
@@ -487,6 +513,7 @@ export const dealsRelations = relations(deals, ({ one, many }) => ({
   transactions: many(transactions),
   otps: many(dealOtps),
   invoices: many(invoices),
+  clientAccessSessions: many(clientAccessSessions),
 }));
 
 export const deliverablesRelations = relations(deliverables, ({ one, many }) => ({
@@ -565,5 +592,12 @@ export const invoiceItemsRelations = relations(invoiceItems, ({ one }) => ({
   invoice: one(invoices, {
     fields: [invoiceItems.invoiceId],
     references: [invoices.id],
+  }),
+}));
+
+export const clientAccessSessionsRelations = relations(clientAccessSessions, ({ one }) => ({
+  deal: one(deals, {
+    fields: [clientAccessSessions.dealId],
+    references: [deals.id],
   }),
 }));

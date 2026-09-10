@@ -10,7 +10,7 @@ import { ArrowLeft, CheckCircle } from 'lucide-react';
 
 export default function ClientInvoicePage() {
   const params = useParams();
-  const token = params.token as string;
+  const token = params.identifier as string;
   const invoiceId = params.id as string;
   const router = useRouter();
 

@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 
 export default function DealInvoicesPage() {
   const params = useParams();
-  const dealId = params.id as string;
+  const dealId = params.identifier as string;
   const router = useRouter();
 
   useEffect(() => {

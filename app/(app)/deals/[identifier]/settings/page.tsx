@@ -14,7 +14,7 @@ import type { Deal, Deliverable, FileVersion, Payment } from '@/lib/types';
 
 export default function DealSettingsPage() {
   const params = useParams();
-  const routeParam = params.id as string;
+  const routeParam = params.identifier as string;
   const store = useAppStore();
 
   const [deal, setDeal] = useState<Deal | null>(() => store.deals.find((d) => d.id === routeParam || d.dealCode === routeParam) || null);

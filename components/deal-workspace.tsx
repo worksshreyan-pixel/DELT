@@ -316,7 +316,7 @@ export function DealWorkspace({
     setCloseError('');
 
     try {
-      const res = await fetch(`/api/deals/${currentDeal.id}/close`, {
+      const res = await fetch(`/api/deals/${currentDeal.dealCode || currentDeal.id}/close`, {
         method: 'POST',
       });
 
@@ -359,7 +359,7 @@ export function DealWorkspace({
           <div className="flex items-center gap-2">
             <DealStatusBadge status={currentDeal.status} />
 
-            <Link href={`/deals/${currentDeal.id}/settings`}>
+            <Link href={`/deals/${currentDeal.dealCode || currentDeal.id}/settings`}>
               <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5">
                 <Settings className="h-3.5 w-3.5" />
                 Settings

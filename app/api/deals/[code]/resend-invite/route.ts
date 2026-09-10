@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { getDealPublicUrl } from '@/lib/deal-url';
+import { getClientDealUrl } from '@/lib/deal-url';
 import { sendDealInvitationEmail } from '@/lib/email';
+import { requireCreatorDealAccess } from '@/lib/deal-auth';
 
 function maskEmail(email: string): string {
   if (!email || !email.includes('@')) return '***';
@@ -12,53 +13,40 @@ function maskEmail(email: string): string {
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ token: string }> }
+  { params }: { params: Promise<{ code: string }> }
 ) {
   try {
-    const { token } = await params;
-    if (!token) {
-      return NextResponse.json({ error: 'Token is required' }, { status: 400 });
+    const { code } = await params;
+    if (!code) {
+      return NextResponse.json({ error: 'Deal code is required' }, { status: 400 });
     }
 
+    const resolution = await requireCreatorDealAccess(code);
+    if (!resolution.authorized || !resolution.deal) {
+      return NextResponse.json({ error: resolution.error || 'Unauthorized' }, { status: 403 });
+    }
+
+    const deal = resolution.deal;
+    const creatorName = resolution.creator?.display_name || 'Creator';
+    const canonicalDealUrl = getClientDealUrl(deal.dealCode);
     const admin = createAdminClient();
-
-    // 1. Fetch deal by token or deal_code
-    const { data: deal, error: dealError } = await admin
-      .from('deals')
-      .select('*')
-      .or(`token.eq.${token},deal_code.eq.${token}`)
-      .maybeSingle();
-
-    if (dealError || !deal) {
-      return NextResponse.json({ error: 'Deal not found' }, { status: 404 });
-    }
-
-    // 2. Fetch creator profile
-    const { data: creatorProfile } = await admin
-      .from('profiles')
-      .select('display_name, email')
-      .eq('id', deal.creator_id)
-      .maybeSingle();
-
-    const creatorName = creatorProfile?.display_name || 'Creator';
-    const canonicalDealUrl = getDealPublicUrl(deal.deal_code || deal.token);
 
     // 3. Send email
     console.log(`[INVITATION_EMAIL_START]`, JSON.stringify({
       dealId: deal.id,
-      clientEmailMasked: maskEmail(deal.client_email),
+      clientEmailMasked: maskEmail(deal.clientEmail),
       timestamp: new Date().toISOString()
     }));
 
     const emailResult = await sendDealInvitationEmail({
-      clientName: deal.client_name,
-      clientEmail: deal.client_email,
+      clientName: deal.clientName,
+      clientEmail: deal.clientEmail,
       creatorName,
       dealTitle: deal.title,
       dealPrice: Number(deal.price),
       dealCurrency: deal.currency || 'INR',
       dealUrl: canonicalDealUrl,
-      dealCode: deal.deal_code || deal.id,
+      dealCode: deal.dealCode || deal.id,
     });
 
     console.log(`[INVITATION_EMAIL_RESULT]`, JSON.stringify({
@@ -78,7 +66,7 @@ export async function POST(
         type: 'deal_shared',
         actor_name: creatorName,
         actor_role: 'creator',
-        description: `Invitation email resent to ${deal.client_email}`,
+        description: `Invitation email resent to ${deal.clientEmail}`,
       });
     }
 
