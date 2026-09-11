@@ -242,6 +242,8 @@ export const fileVersions = pgTable(
       .default([]),
     status: text('status').notNull().default('pending_review'),
     locked: boolean('locked').notNull().default(true),
+    clientFeedback: text('client_feedback'),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({

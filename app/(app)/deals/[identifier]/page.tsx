@@ -172,6 +172,8 @@ export default function DealDetailPage() {
               files: Array.isArray(v.files) ? v.files : [],
               status: v.status,
               locked: Boolean(v.locked),
+              clientFeedback: v.client_feedback,
+              reviewedAt: v.reviewed_at,
               createdAt: v.created_at,
             })));
           }

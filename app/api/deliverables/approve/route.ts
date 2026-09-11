@@ -1,135 +1,143 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { requireClientDealAccess } from '@/lib/deal-auth';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { dealId, deliverableId, action, feedback, clientName } = body;
+    const { dealId, dealCode, deliverableId, action, feedback, clientName } = body;
 
-    if (!dealId || !action || !['approve', 'request_changes'].includes(action)) {
+    if (!dealId || !dealCode || !deliverableId || !action || !['approve', 'request_changes'].includes(action)) {
       return NextResponse.json({ error: 'Invalid approval payload' }, { status: 400 });
+    }
+
+    const resolution = await requireClientDealAccess(request, dealCode);
+    if (!resolution.authorized) {
+      return NextResponse.json({ error: 'Unauthorized client access.' }, { status: 403 });
+    }
+    
+    const deal = resolution.deal;
+    if (!deal) {
+      return NextResponse.json({ error: 'Deal not found.' }, { status: 404 });
+    }
+    if (deal.id !== dealId) {
+       return NextResponse.json({ error: 'Deal ID mismatch.' }, { status: 400 });
     }
 
     const admin = createAdminClient();
     const now = new Date().toISOString();
 
-    const { data: deal } = await admin
-      .from('deals')
+    const { data: deliverable } = await admin
+      .from('deliverables')
       .select('*')
-      .eq('id', dealId)
+      .eq('id', deliverableId)
+      .eq('deal_id', dealId)
       .maybeSingle();
 
-    if (!deal) {
-      return NextResponse.json({ error: 'Deal not found' }, { status: 404 });
+    if (!deliverable) {
+      return NextResponse.json({ error: 'Deliverable not found' }, { status: 404 });
     }
 
-    const supabase = await createServerSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: latestVersion } = await admin
+      .from('file_versions')
+      .select('id, status')
+      .eq('deliverable_id', deliverableId)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    // Check client session token from header
-    const clientSessionHeader = request.headers.get('x-client-session-token');
-    const { verifyClientSessionToken } = await import('@/lib/otp');
-    const hasValidClientToken = clientSessionHeader && deal.token
-      ? verifyClientSessionToken(clientSessionHeader, deal.token, deal.client_email)
-      : false;
-
-    const isCreator = user && user.id === deal.creator_id;
-    const isClient = (user && user.email?.toLowerCase() === deal.client_email?.toLowerCase()) || hasValidClientToken;
-
-    if (isCreator) {
-      return NextResponse.json({ error: 'Creators cannot approve deliverables.' }, { status: 403 });
+    if (!latestVersion) {
+      return NextResponse.json({ error: 'Cannot review a deliverable with no submitted files.' }, { status: 400 });
     }
-    if (!isClient) {
-      return NextResponse.json({ error: 'Unauthorized client access.' }, { status: 403 });
+
+    if (latestVersion.status !== 'pending_review') {
+      return NextResponse.json({ error: 'Cannot review a deliverable that is not currently pending review.' }, { status: 400 });
     }
 
     if (action === 'approve') {
-      if (deliverableId) {
-        await admin
-          .from('deliverables')
-          .update({
-            status: 'approved',
-            approved_at: now,
-          })
-          .eq('id', deliverableId);
-      } else {
-        await admin
-          .from('deliverables')
-          .update({
-            status: 'approved',
-            approved_at: now,
-          })
-          .eq('deal_id', dealId);
-      }
+      await admin
+        .from('deliverables')
+        .update({
+          status: 'approved',
+          approved_at: now,
+        })
+        .eq('id', deliverableId);
 
       await admin
         .from('file_versions')
         .update({
           status: 'approved',
+          reviewed_at: now,
           locked: false,
         })
-        .eq('deal_id', dealId);
+        .eq('id', latestVersion.id);
 
       await admin.from('deal_events').insert({
         deal_id: dealId,
         type: 'deliverable_approved',
-        actor_name: clientName || deal.client_name,
+        actor_name: clientName || deal.clientName,
         actor_role: 'client',
-        description: `${clientName || deal.client_name} approved deliverables.`,
+        description: `${clientName || deal.clientName} approved deliverables.`,
       });
 
       await admin.from('deal_messages').insert({
         deal_id: dealId,
         sender_id: 'client',
-        sender_name: clientName || deal.client_name,
+        sender_name: clientName || deal.clientName,
         sender_role: 'client',
         type: 'approval',
         content: `Approved deliverable files.`,
       });
 
       await admin.from('notifications').insert({
-        user_id: deal.creator_id,
+        user_id: deal.creatorId,
         type: 'deliverable_approved',
         title: 'Deliverable Approved',
-        description: `${deal.client_name} approved deliverables for "${deal.title}"`,
+        description: `${deal.clientName} approved deliverables for "${deal.title}"`,
         deal_id: deal.id,
         deal_title: deal.title,
         read: false,
       });
     } else {
       // Request changes
-      if (deliverableId) {
-        await admin
-          .from('deliverables')
-          .update({
-            status: 'changes_requested',
-          })
-          .eq('id', deliverableId);
-      }
+      await admin
+        .from('deliverables')
+        .update({
+          status: 'changes_requested',
+        })
+        .eq('id', deliverableId);
+
+      await admin
+        .from('file_versions')
+        .update({
+          status: 'changes_requested',
+          client_feedback: feedback || 'Changes requested',
+          reviewed_at: now,
+        })
+        .eq('id', latestVersion.id);
 
       await admin.from('deal_events').insert({
         deal_id: dealId,
         type: 'change_requested',
-        actor_name: clientName || deal.client_name,
+        actor_name: clientName || deal.clientName,
         actor_role: 'client',
-        description: `${clientName || deal.client_name} requested changes: "${feedback || 'Revisions needed'}"`,
+        description: `${clientName || deal.clientName} requested changes: "${feedback || 'Revisions needed'}"`,
       });
 
       await admin.from('deal_messages').insert({
         deal_id: dealId,
         sender_id: 'client',
-        sender_name: clientName || deal.client_name,
+        sender_name: clientName || deal.clientName,
         sender_role: 'client',
         type: 'change_request',
         content: `Change request: ${feedback || 'Please review changes.'}`,
       });
 
       await admin.from('notifications').insert({
-        user_id: deal.creator_id,
+        user_id: deal.creatorId,
         type: 'change_request',
         title: 'Change Requested',
-        description: `${deal.client_name} requested changes on "${deal.title}": ${feedback || ''}`,
+        description: `${deal.clientName} requested changes on "${deal.title}": ${feedback || ''}`,
         deal_id: deal.id,
         deal_title: deal.title,
         read: false,

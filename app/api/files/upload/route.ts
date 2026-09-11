@@ -143,6 +143,12 @@ export async function POST(request: Request) {
           .eq('user_id', user.id);
       }
 
+      // Update deliverable status to uploaded
+      await admin
+        .from('deliverables')
+        .update({ status: 'uploaded' })
+        .eq('id', targetDeliverableId);
+
       // Create timeline event & system message
       await admin.from('deal_events').insert({
         deal_id: dealId,

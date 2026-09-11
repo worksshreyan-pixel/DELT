@@ -221,6 +221,8 @@ export interface FileVersion {
   files: FileVersionItem[];
   status: FileVersionStatus;
   locked: boolean; // locked until payment
+  clientFeedback?: string;
+  reviewedAt?: ISODate;
   createdAt: ISODate;
 }
 

@@ -556,6 +556,7 @@ function ClientPortal({
   const [proposalOpen, setProposalOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [changesOpen, setChangesOpen] = useState(false);
+  const [activeDeliverableId, setActiveDeliverableId] = useState<string | null>(null);
   const [changeFeedback, setChangeFeedback] = useState('');
   const [proposalPrice, setProposalPrice] = useState('');
   const [proposalReason, setProposalReason] = useState('');
@@ -1126,20 +1127,23 @@ function ClientPortal({
     }
   }
 
-  async function handleApproveDeliverables() {
+  async function handleApproveDeliverables(deliverableId: string) {
     try {
-      await fetch('/api/deliverables/approve', {
+      const res = await fetch('/api/deliverables/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           dealId: currentDeal.id,
+          dealCode: currentDeal.dealCode || urlToken,
+          deliverableId,
           action: 'approve',
           clientName,
         }),
       });
-      setDeliverables((prev) => prev.map((d) => ({ ...d, status: 'approved' })));
-      setFileVersions((prev) => prev.map((v) => ({ ...v, status: 'approved', locked: false })));
-      alert('Deliverables approved! All project files are verified.');
+      if (!res.ok) throw new Error(await res.text());
+      setDeliverables((prev) => prev.map((d) => (d.id === deliverableId ? { ...d, status: 'approved' } : d)));
+      setFileVersions((prev) => prev.map((v) => (v.deliverableId === deliverableId ? { ...v, status: 'approved', locked: false } : v)));
+      alert('Deliverable approved!');
     } catch (e) {
       console.error(e);
     }
@@ -1209,20 +1213,32 @@ function ClientPortal({
 
   async function handleRequestChanges(e: React.FormEvent) {
     e.preventDefault();
+    if (!activeDeliverableId) return;
     try {
-      await fetch('/api/deliverables/approve', {
+      const res = await fetch('/api/deliverables/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           dealId: currentDeal.id,
+          dealCode: currentDeal.dealCode || urlToken,
+          deliverableId: activeDeliverableId,
           action: 'request_changes',
           feedback: changeFeedback,
           clientName,
         }),
       });
-      setDeliverables((prev) => prev.map((d) => ({ ...d, status: 'changes_requested' })));
+      if (!res.ok) throw new Error(await res.text());
+      setDeliverables((prev) => prev.map((d) => (d.id === activeDeliverableId ? { ...d, status: 'changes_requested' } : d)));
+      setFileVersions((prev) => {
+        // Find latest version for this deliverable
+        const versions = prev.filter(v => v.deliverableId === activeDeliverableId);
+        if (versions.length === 0) return prev;
+        const maxVersion = Math.max(...versions.map(v => v.version));
+        return prev.map((v) => (v.deliverableId === activeDeliverableId && v.version === maxVersion ? { ...v, status: 'changes_requested', clientFeedback: changeFeedback } : v));
+      });
       setChangesOpen(false);
       setChangeFeedback('');
+      setActiveDeliverableId(null);
       alert('Change request submitted to creator.');
     } catch (e) {
       console.error(e);
@@ -1942,6 +1958,12 @@ function ClientPortal({
                                 <span className="text-xs text-muted-foreground">{new Date(v.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
                               </div>
                               {v.description && <p className="text-sm text-muted-foreground mb-2">{v.description}</p>}
+                              {v.status === 'changes_requested' && v.clientFeedback && (
+                                <div className="mb-3 rounded-md bg-amber-500/10 p-2.5 border border-amber-500/20">
+                                  <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-0.5">Revision Feedback</p>
+                                  <p className="text-sm text-amber-800 dark:text-amber-200">{v.clientFeedback}</p>
+                                </div>
+                              )}
                               <div className="space-y-1.5">
                                 {v.files.map((f) => (
                                   <div key={f.id} className="flex items-center justify-between rounded-lg bg-muted/40 p-2.5 text-xs">
@@ -2004,54 +2026,80 @@ function ClientPortal({
                             </div>
                           ))
                         )}
+                        
+                        {!isClosed && !isReadOnly && versions.length > 0 && (
+                          (() => {
+                            const latestVersion = versions.reduce((a, b) => (a.version > b.version ? a : b));
+                            
+                            if (latestVersion.status === 'pending_review') {
+                              return (
+                                <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-border mt-3">
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="gap-1.5"
+                                    onClick={() => { setActiveDeliverableId(del.id); setChangeFeedback(''); setChangesOpen(true); }}
+                                  >
+                                    <Flag className="h-3.5 w-3.5" />
+                                    Request Changes
+                                  </Button>
+                                  <Button 
+                                    size="sm" 
+                                    className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white" 
+                                    onClick={() => handleApproveDeliverables(del.id)}
+                                  >
+                                    <Check className="h-3.5 w-3.5" />
+                                    Approve
+                                  </Button>
+                                </div>
+                              );
+                            }
+                            
+                            if (latestVersion.status === 'changes_requested') {
+                              return (
+                                <div className="pt-3 mt-3 border-t border-border">
+                                  <p className="text-sm text-muted-foreground italic text-center">
+                                    Waiting for creator to upload a new version...
+                                  </p>
+                                </div>
+                              );
+                            }
+                            
+                            return null; // Approved
+                          })()
+                        )}
                       </CardContent>
                     </Card>
                   );
                 })
               )}
-
-              {/* Approval & Changes Bar */}
-              {!isClosed && !isReadOnly && (
-                <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
-                  <Dialog open={changesOpen} onOpenChange={setChangesOpen}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" size="sm" className="gap-1.5">
-                        <Flag className="h-3.5 w-3.5" />
-                        Request Changes
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Request Deliverable Changes</DialogTitle>
-                      </DialogHeader>
-                      <form onSubmit={handleRequestChanges} className="space-y-4 pt-2">
-                        <div className="space-y-2">
-                          <Label>What needs to be revised?</Label>
-                          <Textarea
-                            placeholder="Describe the adjustments needed..."
-                            rows={4}
-                            value={changeFeedback}
-                            onChange={(e) => setChangeFeedback(e.target.value)}
-                            required
-                          />
-                        </div>
-                        <DialogFooter>
-                          <Button type="button" variant="outline" onClick={() => setChangesOpen(false)}>
-                            Cancel
-                          </Button>
-                          <Button type="submit">Submit Request</Button>
-                        </DialogFooter>
-                      </form>
-                    </DialogContent>
-                  </Dialog>
-
-                  <Button size="sm" className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={handleApproveDeliverables}>
-                    <Check className="h-3.5 w-3.5" />
-                    Approve Deliverables
-                  </Button>
-                </div>
-              )}
             </div>
+            
+            <Dialog open={changesOpen} onOpenChange={(open) => { setChangesOpen(open); if (!open) setActiveDeliverableId(null); }}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Request Deliverable Changes</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleRequestChanges} className="space-y-4 pt-2">
+                  <div className="space-y-2">
+                    <Label>What needs to be revised?</Label>
+                    <Textarea
+                      placeholder="Describe the adjustments needed..."
+                      rows={4}
+                      value={changeFeedback}
+                      onChange={(e) => setChangeFeedback(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => { setChangesOpen(false); setActiveDeliverableId(null); }}>
+                      Cancel
+                    </Button>
+                    <Button type="submit">Submit Request</Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
           </TabsContent>
 
           {/* Payment */}

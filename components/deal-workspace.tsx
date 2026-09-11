@@ -1576,6 +1576,12 @@ function FilesTab({
                             </span>
                           </div>
                           {v.description && <p className="text-sm text-muted-foreground mb-2">{v.description}</p>}
+                          {v.status === 'changes_requested' && v.clientFeedback && (
+                            <div className="mb-3 rounded-md bg-amber-500/10 p-2.5 border border-amber-500/20">
+                              <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-0.5">Revision Feedback</p>
+                              <p className="text-sm text-amber-800 dark:text-amber-200">{v.clientFeedback}</p>
+                            </div>
+                          )}
                           <div className="space-y-1.5">
                             {v.files.map((f: any) => {
                               const isReplaced = f.deletionStatus === 'retention' || f.deletionStatus === 'deleted';
