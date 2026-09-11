@@ -158,12 +158,6 @@ export default function DealsPage() {
                             Due {deal.deadline ? new Date(deal.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—'}
                           </p>
                         </div>
-                        <div className="hidden md:block w-20">
-                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                            <div className="h-full rounded-full bg-primary" style={{ width: `${deal.progress}%` }} />
-                          </div>
-                          <p className="mt-1 text-xs text-muted-foreground text-right">{deal.progress}%</p>
-                        </div>
                       </div>
                     </CardContent>
                   </Card>

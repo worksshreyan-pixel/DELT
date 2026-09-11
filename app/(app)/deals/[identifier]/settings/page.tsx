@@ -67,12 +67,12 @@ export default function DealSettingsPage() {
               currency: dbDeal.currency || 'INR',
               status: dbDeal.status || 'in_progress',
               deadline: dbDeal.deadline,
-              progress: Number(dbDeal.progress || 0),
               paymentStatus: dbDeal.payment_status || 'pending',
               lastActivityAt: dbDeal.last_activity_at || dbDeal.created_at,
               createdAt: dbDeal.created_at,
               updatedAt: dbDeal.updated_at,
               previewEnabled: parseDescription(dbDeal.description).previewEnabled,
+              projectStructure: dbDeal.project_structure || 'scope_and_milestones',
             };
             setDeal(currentDeal);
           }

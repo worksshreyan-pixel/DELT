@@ -109,13 +109,13 @@ export const deals = pgTable(
     currency: text('currency').notNull().default('INR'),
     status: text('status').notNull().default('in_progress'),
     deadline: timestamp('deadline', { withTimezone: true }),
-    progress: integer('progress').notNull().default(0),
     paymentStatus: text('payment_status').notNull().default('pending'),
     lastActivityAt: timestamp('last_activity_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
     previewEnabled: boolean('preview_enabled').notNull().default(false),
+    projectStructure: text('project_structure').notNull().default('scope_and_milestones'),
   },
   (table) => ({
     creatorIdIdx: index('idx_deals_creator_id').on(table.creatorId),
@@ -271,6 +271,29 @@ export const dealEvents = pgTable(
   (table) => ({
     dealIdIdx: index('idx_deal_events_deal_id').on(table.dealId),
     createdAtIdx: index('idx_deal_events_created_at').on(table.createdAt),
+  })
+);
+
+// ------------------------------------------------------------------------------
+// 9b. Milestones (Deal Workflow & Scope)
+// ------------------------------------------------------------------------------
+export const milestones = pgTable(
+  'milestones',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    dealId: uuid('deal_id')
+      .notNull()
+      .references(() => deals.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    description: text('description'),
+    order: integer('order').notNull().default(0),
+    dueDate: timestamp('due_date', { withTimezone: true }),
+    status: text('status').notNull().default('pending'), // 'pending', 'in_progress', 'completed'
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    dealIdIdx: index('idx_milestones_deal_id').on(table.dealId),
   })
 );
 
@@ -508,6 +531,7 @@ export const dealsRelations = relations(deals, ({ one, many }) => ({
   proposals: many(priceProposals),
   deliverables: many(deliverables),
   fileVersions: many(fileVersions),
+  milestones: many(milestones),
   events: many(dealEvents),
   payments: many(payments),
   transactions: many(transactions),
@@ -531,6 +555,13 @@ export const fileVersionsRelations = relations(fileVersions, ({ one }) => ({
   }),
   deal: one(deals, {
     fields: [fileVersions.dealId],
+    references: [deals.id],
+  }),
+}));
+
+export const milestonesRelations = relations(milestones, ({ one }) => ({
+  deal: one(deals, {
+    fields: [milestones.dealId],
     references: [deals.id],
   }),
 }));

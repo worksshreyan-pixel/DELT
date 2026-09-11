@@ -43,13 +43,14 @@ import { FileCard } from '@/components/file-card';
 import { Timeline } from '@/components/timeline-event';
 import { InvoicePreview } from '@/components/invoices/invoice-preview';
 import { EmptyState } from '@/components/empty-state';
+import { ScopeMilestones } from '@/components/scope-milestones';
 import { formatCurrency } from '@/lib/plans';
 import { createClient } from '@/lib/supabase/client';
 import { printWithFilename } from '@/lib/print-utils';
 import { hasSupabasePublicConfig } from '@/lib/env';
 import { addMessageToStore, addProposalToStore, respondToProposalInStore, simulatePaymentInStore } from '@/lib/app-store';
 import { cn } from '@/lib/utils';
-import type { Deal, DealMessage, PriceProposal, DealEvent, Deliverable, FileVersion } from '@/lib/types';
+import type { Deal, DealMessage, PriceProposal, DealEvent, Deliverable, FileVersion, Payment, Milestone } from '@/lib/types';
 
 function loadRazorpayScript(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -544,7 +545,10 @@ function ClientPortal({
   const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
   const [fileVersions, setFileVersions] = useState<FileVersion[]>([]);
   const [events, setEvents] = useState<DealEvent[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
+  const [clientSessionChecked, setClientSessionChecked] = useState(false);
 
   const isReadOnly = viewerRole === 'creator';
 
@@ -665,6 +669,23 @@ function ClientPortal({
         })));
       }
 
+      // Milestones
+      const { data: dbMilestones } = await supabase.from('milestones').select('*').eq('deal_id', deal.id).order('order', { ascending: true });
+      if (dbMilestones && dbMilestones.length > 0) {
+        setMilestones(dbMilestones.map((m: any) => ({
+          id: m.id,
+          dealId: m.deal_id,
+          title: m.title,
+          description: m.description,
+          order: m.order,
+          dueDate: m.due_date,
+          status: m.status,
+          completedAt: m.completed_at,
+          createdAt: m.created_at,
+          updatedAt: m.updated_at,
+        })));
+      }
+
       // Invoices
       const { data: dbInvoices } = await supabase.from('invoices').select('*, creator:profiles(*)').eq('deal_id', deal.id).neq('status', 'draft').order('created_at', { ascending: false });
       if (dbInvoices && dbInvoices.length > 0) {
@@ -768,6 +789,40 @@ function ClientPortal({
           if (updated.payment_status === 'paid' || updated.status === 'completed') {
             setDeliverables((prev) => prev.map((d) => ({ ...d, status: 'approved' })));
             setFileVersions((prev) => prev.map((v) => ({ ...v, status: 'approved', locked: false })));
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'milestones', filter: `deal_id=eq.${deal.id}` },
+        (payload) => {
+          const raw = payload.new as any;
+          if (payload.eventType === 'DELETE') {
+            const oldId = (payload.old as any).id;
+            setMilestones((prev) => prev.filter((m) => m.id !== oldId));
+          } else {
+            const formatted: Milestone = {
+              id: raw.id,
+              dealId: raw.deal_id,
+              title: raw.title,
+              description: raw.description,
+              order: raw.order,
+              dueDate: raw.due_date,
+              status: raw.status,
+              completedAt: raw.completed_at,
+              createdAt: raw.created_at,
+              updatedAt: raw.updated_at,
+            };
+            if (payload.eventType === 'INSERT') {
+              setMilestones((prev) => {
+                if (prev.some((m) => m.id === formatted.id)) return prev;
+                return [...prev, formatted];
+              });
+            } else if (payload.eventType === 'UPDATE') {
+              setMilestones((prev) =>
+                prev.map((m) => (m.id === formatted.id ? formatted : m))
+              );
+            }
           }
         }
       )
@@ -1140,7 +1195,6 @@ function ClientPortal({
         ...prev,
         paymentStatus: 'paid',
         status: 'completed',
-        progress: 100,
       }));
       setDeliverables((prev) => prev.map((d) => ({ ...d, status: 'approved' })));
       setFileVersions((prev) => prev.map((v) => ({ ...v, status: 'approved', locked: false })));
@@ -1225,7 +1279,6 @@ function ClientPortal({
             ...prev,
             paymentStatus: 'paid',
             status: 'completed',
-            progress: 100,
           }));
           setDeliverables((prev) => prev.map((d) => ({ ...d, status: 'approved' })));
           setFileVersions((prev) => prev.map((v) => ({ ...v, status: 'approved', locked: false })));
@@ -1283,7 +1336,6 @@ function ClientPortal({
                   ...prev,
                   paymentStatus: 'paid',
                   status: 'completed',
-                  progress: 100,
                 }));
                 setDeliverables((prev) => prev.map((d) => ({ ...d, status: 'approved' })));
                 setFileVersions((prev) => prev.map((v) => ({ ...v, status: 'approved', locked: false })));
@@ -1323,7 +1375,6 @@ function ClientPortal({
         ...prev,
         paymentStatus: 'paid',
         status: 'completed',
-        progress: 100,
       }));
       setDeliverables((prev) => prev.map((d) => ({ ...d, status: 'approved' })));
       setFileVersions((prev) => prev.map((v) => ({ ...v, status: 'approved', locked: false })));
@@ -1538,19 +1589,6 @@ function ClientPortal({
                       <p className="text-sm leading-relaxed">{currentDeal.description}</p>
                     </div>
                   )}
-                  {currentDeal.scope && currentDeal.scope.length > 0 && (
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-2">Scope</p>
-                      <ul className="space-y-1.5">
-                        {currentDeal.scope.map((s, i) => (
-                          <li key={i} className="flex items-start gap-2 text-sm">
-                            <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                            <span className="text-muted-foreground">{s}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
                   {deliverables.length > 0 && (
                     <div>
                       <p className="text-xs text-muted-foreground mb-2">Deliverables</p>
@@ -1570,6 +1608,15 @@ function ClientPortal({
                 </CardContent>
               </Card>
 
+              {currentDeal.projectStructure !== 'none' && (
+                <ScopeMilestones 
+                  deal={currentDeal} 
+                  milestones={milestones} 
+                  isCreator={false} 
+                  showScope={currentDeal.projectStructure === 'scope' || currentDeal.projectStructure === 'scope_and_milestones'}
+                  showMilestones={currentDeal.projectStructure === 'milestones' || currentDeal.projectStructure === 'scope_and_milestones'}
+                />
+              )}
               <div className="space-y-4">
                 <Card>
                   <CardHeader><CardTitle className="text-base">Client Access</CardTitle></CardHeader>

@@ -40,6 +40,7 @@ export async function POST(request: Request) {
     let uploadedFiles: File[] = [];
     let previewEnabled = false;
     let previewFiles: File[] = [];
+    let projectStructure = 'scope_and_milestones';
 
     if (contentType.includes('multipart/form-data')) {
       const formData = await request.formData();
@@ -86,6 +87,7 @@ export async function POST(request: Request) {
           previewFiles.push(entry);
         }
       }
+      projectStructure = (formData.get('projectStructure') as string) || 'scope_and_milestones';
     } else {
       const body = await request.json();
       clientName = body.clientName || '';
@@ -99,7 +101,12 @@ export async function POST(request: Request) {
       scope = Array.isArray(body.scope) ? body.scope : [];
       deliverables = Array.isArray(body.deliverables) ? body.deliverables : [];
       previewEnabled = body.previewEnabled === true;
+      projectStructure = body.projectStructure || 'scope_and_milestones';
     }
+
+    const validStructures = ['none', 'scope', 'milestones', 'scope_and_milestones'];
+    const structureToSave = validStructures.includes(projectStructure) ? projectStructure : 'scope_and_milestones';
+    const hasScope = structureToSave === 'scope' || structureToSave === 'scope_and_milestones';
 
     if (!clientName.trim() || !clientEmail.trim() || !title.trim() || !price || price <= 0) {
       return NextResponse.json({ error: 'Missing required deal fields (Client name, email, project title, price).' }, { status: 400 });
@@ -209,12 +216,12 @@ export async function POST(request: Request) {
           client_email: clientEmail.trim().toLowerCase(),
           title: title.trim(),
           description: serializeDescription(description.trim() || null, previewEnabled),
-          scope: scope.length > 0 ? scope : ['Project requirements & delivery'],
+          scope: scope.length > 0 ? scope : (hasScope ? ['Project requirements & delivery'] : []),
+          project_structure: structureToSave,
           price: price,
           currency,
           status: 'in_progress',
           deadline: deadline || null,
-          progress: 10,
           payment_status: 'pending',
           last_activity_at: now,
         })

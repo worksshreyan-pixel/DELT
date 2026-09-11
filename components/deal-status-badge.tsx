@@ -90,7 +90,6 @@ const milestoneConfig: Record<MilestoneStatus, { label: string; className: strin
   pending: { label: 'Pending', className: 'bg-muted text-muted-foreground' },
   in_progress: { label: 'In Progress', className: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' },
   completed: { label: 'Completed', className: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' },
-  paid: { label: 'Paid', className: 'bg-teal-50 text-teal-700 dark:bg-teal-950 dark:text-teal-300' },
 };
 
 export function MilestoneStatusBadge({ status, className }: { status: MilestoneStatus; className?: string }) {

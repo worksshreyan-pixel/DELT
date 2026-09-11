@@ -10,7 +10,7 @@ import { useAppStore } from '@/lib/app-store';
 import { createClient } from '@/lib/supabase/client';
 import { hasSupabasePublicConfig } from '@/lib/env';
 import { parseDescription } from '@/lib/utils';
-import type { Deal, DealMessage, PriceProposal, DealEvent, Deliverable, FileVersion, Payment } from '@/lib/types';
+import type { Deal, DealMessage, PriceProposal, DealEvent, Deliverable, FileVersion, Payment, Milestone } from '@/lib/types';
 
 export default function DealDetailPage() {
   const params = useParams();
@@ -28,6 +28,7 @@ export default function DealDetailPage() {
   const [fileVersions, setFileVersions] = useState<FileVersion[]>(() => store.fileVersions[actualDealId] || []);
   const [events, setEvents] = useState<DealEvent[]>(() => store.events[actualDealId] || []);
   const [payments, setPayments] = useState<Payment[]>(() => store.payments[actualDealId] || []);
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(!deal);
 
@@ -75,12 +76,12 @@ export default function DealDetailPage() {
               currency: dbDeal.currency || 'INR',
               status: dbDeal.status || 'in_progress',
               deadline: dbDeal.deadline,
-              progress: Number(dbDeal.progress || 0),
               paymentStatus: dbDeal.payment_status || 'pending',
               lastActivityAt: dbDeal.last_activity_at || dbDeal.created_at,
               createdAt: dbDeal.created_at,
               updatedAt: dbDeal.updated_at,
               previewEnabled: parseDescription(dbDeal.description).previewEnabled,
+              projectStructure: dbDeal.project_structure || 'scope_and_milestones',
             };
             setDeal(currentDeal);
           }
@@ -88,13 +89,14 @@ export default function DealDetailPage() {
 
         if (currentDeal) {
           const fetchedId = currentDeal.id;
-          const [dbMsgs, dbProps, dbDelivs, dbVersions, dbEvents, dbInvoicesRaw] = await Promise.all([
+          const [dbMsgs, dbProps, dbDelivs, dbVersions, dbEvents, dbInvoicesRaw, dbMilestones] = await Promise.all([
             supabase.from('deal_messages').select('*').eq('deal_id', fetchedId).order('created_at', { ascending: true }),
             supabase.from('price_proposals').select('*').eq('deal_id', fetchedId).order('created_at', { ascending: true }),
             supabase.from('deliverables').select('*').eq('deal_id', fetchedId),
             supabase.from('file_versions').select('*').eq('deal_id', fetchedId).order('version', { ascending: true }),
             supabase.from('deal_events').select('*').eq('deal_id', fetchedId).order('created_at', { ascending: false }),
-            supabase.from('invoices').select('*, creator:profiles(*)').eq('deal_id', fetchedId).neq('status', 'draft').order('created_at', { ascending: false })
+            supabase.from('invoices').select('*, creator:profiles(*)').eq('deal_id', fetchedId).neq('status', 'draft').order('created_at', { ascending: false }),
+            supabase.from('milestones').select('*').eq('deal_id', fetchedId).order('order', { ascending: true })
           ]);
 
           let fetchedInvoices = dbInvoicesRaw.data || [];
@@ -183,6 +185,21 @@ export default function DealDetailPage() {
               actorRole: e.actor_role || 'system',
               description: e.description,
               createdAt: e.created_at,
+            })));
+          }
+
+          if (dbMilestones.data) {
+            setMilestones(dbMilestones.data.map((m: any) => ({
+              id: m.id,
+              dealId: m.deal_id,
+              title: m.title,
+              description: m.description,
+              order: m.order,
+              dueDate: m.due_date,
+              status: m.status,
+              completedAt: m.completed_at,
+              createdAt: m.created_at,
+              updatedAt: m.updated_at,
             })));
           }
         }
@@ -278,6 +295,40 @@ export default function DealDetailPage() {
           });
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'milestones', filter: `deal_id=eq.${fetchedId}` },
+        (payload) => {
+          const raw = payload.new as any;
+          if (payload.eventType === 'DELETE') {
+            const oldId = (payload.old as any).id;
+            setMilestones((prev) => prev.filter((m) => m.id !== oldId));
+          } else {
+            const formatted: Milestone = {
+              id: raw.id,
+              dealId: raw.deal_id,
+              title: raw.title,
+              description: raw.description,
+              order: raw.order,
+              dueDate: raw.due_date,
+              status: raw.status,
+              completedAt: raw.completed_at,
+              createdAt: raw.created_at,
+              updatedAt: raw.updated_at,
+            };
+            if (payload.eventType === 'INSERT') {
+              setMilestones((prev) => {
+                if (prev.some((m) => m.id === formatted.id)) return prev;
+                return [...prev, formatted];
+              });
+            } else if (payload.eventType === 'UPDATE') {
+              setMilestones((prev) =>
+                prev.map((m) => (m.id === formatted.id ? formatted : m))
+              );
+            }
+          }
+        }
+      )
       .subscribe();
 
     return () => {
@@ -326,7 +377,7 @@ export default function DealDetailPage() {
         events={events}
         deliverables={deliverables}
         fileVersions={fileVersions}
-        milestones={[]}
+        milestones={milestones}
         payments={payments}
         changeRequests={[]}
         invoices={invoices}

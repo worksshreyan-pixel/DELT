@@ -356,12 +356,12 @@ export async function syncStoreFromSupabase(userId: string, force = false) {
         currency: d.currency || 'INR',
         status: d.status || 'in_progress',
         deadline: d.deadline,
-        progress: Number(d.progress || 0),
         paymentStatus: d.payment_status || 'pending',
         lastActivityAt: d.last_activity_at || d.created_at,
         createdAt: d.created_at,
         updatedAt: d.updated_at,
         previewEnabled: parseDescription(d.description).previewEnabled,
+        projectStructure: d.project_structure || 'scope_and_milestones',
       }));
     }
 
@@ -590,12 +590,12 @@ export function createDealInStore(input: CreateDealInput): Deal {
     currency,
     status: 'in_progress',
     deadline: input.deadline,
-    progress: 10,
     paymentStatus: 'pending',
     lastActivityAt: now,
     createdAt: now,
     updatedAt: now,
     previewEnabled: input.previewEnabled || false,
+    projectStructure: 'scope_and_milestones',
   };
 
   store.deals.unshift(newDeal);
@@ -813,7 +813,6 @@ export function simulatePaymentInStore(dealId: string, paymentMethod = 'Razorpay
   if (deal) {
     deal.paymentStatus = 'paid';
     deal.status = 'completed';
-    deal.progress = 100;
     deal.lastActivityAt = now;
     deal.updatedAt = now;
 

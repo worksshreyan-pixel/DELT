@@ -40,12 +40,12 @@ export async function resolveDealByCode(dealCode: string) {
     currency: deal.currency || 'INR',
     status: deal.status || 'in_progress',
     deadline: deal.deadline,
-    progress: Number(deal.progress || 0),
     paymentStatus: deal.payment_status || 'pending',
     lastActivityAt: deal.last_activity_at || deal.created_at,
     createdAt: deal.created_at,
     completedAt: deal.completed_at,
     previewEnabled: parsed.previewEnabled,
+    projectStructure: deal.project_structure || 'scope_and_milestones',
   };
 
   return { deal: resolvedDeal, creator };

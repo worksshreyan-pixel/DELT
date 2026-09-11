@@ -66,6 +66,8 @@ export type DealStatus =
   | 'closed'
   | 'cancelled';
 
+export type ProjectStructure = 'none' | 'scope' | 'milestones' | 'scope_and_milestones';
+
 export type Currency = 'INR' | 'USD' | 'EUR' | 'GBP';
 
 export interface Deal {
@@ -81,12 +83,12 @@ export interface Deal {
   currency: Currency;
   status: DealStatus;
   deadline?: ISODate;
-  progress: number; // 0-100
   paymentStatus: PaymentState;
   lastActivityAt: ISODate;
   createdAt: ISODate;
   updatedAt: ISODate;
   previewEnabled: boolean;
+  projectStructure: ProjectStructure;
 }
 
 export type DealParticipantRole = 'creator' | 'client';
@@ -226,18 +228,19 @@ export interface FileVersion {
 // Milestones
 // ---------------------------------------------------------------------------
 
-export type MilestoneStatus = 'pending' | 'in_progress' | 'completed' | 'paid';
+export type MilestoneStatus = 'pending' | 'in_progress' | 'completed';
 
 export interface Milestone {
   id: UUID;
   dealId: UUID;
   title: string;
   description?: string;
-  amount: number;
   status: MilestoneStatus;
   order: number;
+  dueDate?: ISODate;
   completedAt?: ISODate;
   createdAt: ISODate;
+  updatedAt: ISODate;
 }
 
 // ---------------------------------------------------------------------------

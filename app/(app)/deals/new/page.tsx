@@ -59,6 +59,7 @@ interface DealFormData {
   price: string;
   currency: string;
   deliverables: string[];
+  projectStructure: 'none' | 'scope' | 'milestones' | 'scope_and_milestones';
 }
 
 export default function CreateDealPage() {
@@ -92,6 +93,7 @@ function CreateDealForm() {
     price: '',
     currency: 'INR',
     deliverables: [],
+    projectStructure: 'scope_and_milestones',
   });
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previewEnabled, setPreviewEnabled] = useState(false);
@@ -368,7 +370,8 @@ function CreateDealForm() {
           deadline: data.deadline,
           scope: data.scope,
           deliverables: data.deliverables,
-          previewEnabled
+          previewEnabled,
+          projectStructure: data.projectStructure
         }),
       });
 
@@ -667,32 +670,65 @@ function CreateDealForm() {
                       onChange={(e) => update('description', e.target.value)}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Scope items (optional)</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="Add a scope milestone or task..."
-                        value={scopeInput}
-                        onChange={(e) => setScopeInput(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addScope(); } }}
-                      />
-                      <Button variant="outline" size="icon" onClick={addScope}>
-                        <Plus className="h-4 w-4" />
-                      </Button>
+                  <div className="space-y-3">
+                    <Label>Project Structure</Label>
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      {(['none', 'scope', 'milestones', 'scope_and_milestones'] as const).map((ps) => (
+                        <label
+                          key={ps}
+                          className={cn(
+                            "flex flex-col items-center justify-center rounded-lg border-2 p-3 text-center cursor-pointer transition-colors",
+                            data.projectStructure === ps 
+                              ? "border-primary bg-primary/10 text-foreground" 
+                              : "border-muted bg-background text-muted-foreground hover:bg-muted"
+                          )}
+                        >
+                          <input
+                            type="radio"
+                            name="projectStructure"
+                            className="sr-only"
+                            checked={data.projectStructure === ps}
+                            onChange={() => update('projectStructure', ps)}
+                          />
+                          <span className="text-xs font-medium">
+                            {ps === 'none' ? 'Simple Deal' : 
+                             ps === 'scope' ? 'Scope Only' : 
+                             ps === 'milestones' ? 'Milestones Only' : 
+                             'Scope + Milestones'}
+                          </span>
+                        </label>
+                      ))}
                     </div>
-                    {data.scope.length > 0 && (
-                      <div className="space-y-1.5 mt-2">
-                        {data.scope.map((s, i) => (
-                          <div key={i} className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
-                            <span className="text-sm">{s}</span>
-                            <button onClick={() => removeScope(i)} className="text-muted-foreground hover:text-destructive">
-                              <X className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
+
+                  {(data.projectStructure === 'scope' || data.projectStructure === 'scope_and_milestones') && (
+                    <div className="space-y-2 pt-2 border-t border-border/50 mt-2">
+                      <Label>Scope items (optional)</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Add a scope milestone or task..."
+                          value={scopeInput}
+                          onChange={(e) => setScopeInput(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addScope(); } }}
+                        />
+                        <Button variant="outline" size="icon" onClick={addScope}>
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      {data.scope.length > 0 && (
+                        <div className="space-y-1.5 mt-2">
+                          {data.scope.map((s, i) => (
+                            <div key={i} className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
+                              <span className="text-sm">{s}</span>
+                              <button type="button" onClick={() => removeScope(i)} className="text-muted-foreground hover:text-destructive">
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <Label htmlFor="deadline">Target deadline (optional)</Label>
                     <Input

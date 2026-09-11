@@ -47,6 +47,7 @@ import { FileCard } from '@/components/file-card';
 import { Timeline } from '@/components/timeline-event';
 import { InvoicePreview } from '@/components/invoices/invoice-preview';
 import { EmptyState } from '@/components/empty-state';
+import { ScopeMilestones } from '@/components/scope-milestones';
 import { formatCurrency } from '@/lib/plans';
 import { createClient } from '@/lib/supabase/client';
 import { hasSupabasePublicConfig } from '@/lib/env';
@@ -610,20 +611,18 @@ function OverviewTab({
                 <p className="text-sm leading-relaxed">{deal.description}</p>
               </div>
             )}
-
-            <div>
-              <p className="text-xs text-muted-foreground mb-2">Scope</p>
-              <ul className="space-y-1.5">
-                {deal.scope.map((s, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm">
-                    <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                    <span>{s}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
           </CardContent>
         </Card>
+
+        {deal.projectStructure !== 'none' && (
+          <ScopeMilestones 
+            deal={deal} 
+            milestones={milestones} 
+            isCreator={true} 
+            showScope={deal.projectStructure === 'scope' || deal.projectStructure === 'scope_and_milestones'}
+            showMilestones={deal.projectStructure === 'milestones' || deal.projectStructure === 'scope_and_milestones'}
+          />
+        )}
 
         {deliverables.length > 0 && (
           <Card>

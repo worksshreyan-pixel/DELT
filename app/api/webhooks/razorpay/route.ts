@@ -65,7 +65,6 @@ export async function POST(request: Request) {
             .update({
               payment_status: 'paid',
               status: 'completed',
-              progress: 100,
               completed_at: now,
               updated_at: now,
               last_activity_at: now,

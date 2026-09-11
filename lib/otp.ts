@@ -575,7 +575,6 @@ export async function verifyDealOtp(
     currency: deal.currency || 'INR',
     status: deal.status || 'in_progress',
     deadline: deal.deadline,
-    progress: Number(deal.progress || 0),
     paymentStatus: deal.payment_status || 'pending',
     lastActivityAt: deal.last_activity_at || deal.created_at,
     createdAt: deal.created_at,
