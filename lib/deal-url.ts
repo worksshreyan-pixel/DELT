@@ -28,25 +28,23 @@ export function generateDealCode(): string {
 
 /**
  * Returns the canonical absolute URL for a Client Deal Workspace.
+ *
+ * Always derived from NEXT_PUBLIC_APP_URL — never window.location.origin — so
+ * the value is identical on server and client (no hydration mismatch in the
+ * Deal Card QR) and every scan/link lands on the canonical production origin,
+ * even when the app is viewed from localhost or an internal host.
  */
 export function getClientDealUrl(dealCode: string): string {
-  const baseUrl = typeof window !== 'undefined'
-    ? window.location.origin
-    : (env.app.url || 'http://localhost:3000');
-
-  const cleanBase = baseUrl.replace(/\/+$/, '');
+  const cleanBase = (env.app.url || 'http://localhost:3000').replace(/\/+$/, '');
   return `${cleanBase}/deal/${encodeURIComponent(dealCode)}`;
 }
 
 /**
  * Returns the canonical absolute URL for a Creator Deal Dashboard.
+ * Environment-derived — see getClientDealUrl.
  */
 export function getCreatorDealUrl(dealCode: string): string {
-  const baseUrl = typeof window !== 'undefined'
-    ? window.location.origin
-    : (env.app.url || 'http://localhost:3000');
-
-  const cleanBase = baseUrl.replace(/\/+$/, '');
+  const cleanBase = (env.app.url || 'http://localhost:3000').replace(/\/+$/, '');
   return `${cleanBase}/deals/${encodeURIComponent(dealCode)}`;
 }
 

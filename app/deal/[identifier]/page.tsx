@@ -44,6 +44,7 @@ import { Timeline } from '@/components/timeline-event';
 import { InvoicePreview } from '@/components/invoices/invoice-preview';
 import { EmptyState } from '@/components/empty-state';
 import { ScopeMilestones } from '@/components/scope-milestones';
+import { DealCard } from '@/components/deal/deal-card';
 import { formatCurrency } from '@/lib/plans';
 import { createClient } from '@/lib/supabase/client';
 import { printWithFilename } from '@/lib/print-utils';
@@ -85,6 +86,7 @@ export default function ClientDealPage() {
   const [dealNotFound, setDealNotFound] = useState(false);
   const [loadingDeal, setLoadingDeal] = useState(true);
   const [viewerRole, setViewerRole] = useState<'client' | 'creator'>('client');
+  const [creatorName, setCreatorName] = useState('Creator');
   const [verified, setVerified] = useState(false);
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
@@ -136,6 +138,7 @@ export default function ClientDealPage() {
 
         if (json.authorized && json.deal) {
           setDeal(json.deal);
+          setCreatorName(json.creatorName || json.deal.creatorName || 'Creator');
           setEmail(json.clientEmail || json.deal.clientEmail || '');
           setViewerRole(json.role || 'client');
           setVerified(true);
@@ -268,6 +271,9 @@ export default function ClientDealPage() {
       }
       if (serverVerifyJson.deal) {
         setDeal(serverVerifyJson.deal);
+      }
+      if (serverVerifyJson.creatorName || serverVerifyJson.deal?.creatorName) {
+        setCreatorName(serverVerifyJson.creatorName || serverVerifyJson.deal.creatorName);
       }
       setViewerRole('client');
       setVerified(true);
@@ -513,7 +519,7 @@ export default function ClientDealPage() {
       deal={deal}
       clientEmail={email}
       clientName={(deal as any).clientName || (deal as any).client_name || 'Client'}
-      creatorName="Creator"
+      creatorName={creatorName}
       viewerRole={viewerRole}
       urlToken={token}
     />
@@ -1525,7 +1531,7 @@ function ClientPortal({
     <div className="min-h-screen bg-muted/20">
       {/* Client header */}
       <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-4xl items-center justify-between px-4 sm:px-6">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
           <Logo size="sm" />
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Lock className="h-3.5 w-3.5" />
@@ -1540,7 +1546,7 @@ function ClientPortal({
         </div>
       )}
 
-      <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
         {/* Deal header */}
         <div className="mb-6">
           <h1 className="text-2xl font-display font-semibold tracking-tight">{currentDeal.title}</h1>
@@ -1575,8 +1581,24 @@ function ClientPortal({
 
           {/* Overview */}
           <TabsContent value="overview" className="mt-4">
-            <div className="grid gap-4 lg:grid-cols-3">
-              <Card className="lg:col-span-2">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px]">
+              {/* Deal Card — the deal's visual identity, same component as the creator workspace.
+                  Owns the right column on desktop (sticky while the content column scrolls);
+                  first in the natural flow on smaller screens. */}
+              <div className="order-1 lg:sticky lg:top-6 lg:order-2 lg:self-start">
+                <DealCard
+                  deal={currentDeal}
+                  creatorName={creatorName}
+                  clientName={clientName}
+                  deliverablesCount={deliverables.length}
+                  milestones={milestones}
+                  variant="workspace"
+                />
+              </div>
+
+              {/* Main content column — all deal information, filling the remaining width */}
+              <div className="order-2 space-y-4 lg:order-1">
+              <Card>
                 <CardHeader><CardTitle className="text-base">Project Details</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -1738,6 +1760,7 @@ function ClientPortal({
                     </Card>
                   );
                 })()}
+                </div>
               </div>
             </div>
           </TabsContent>

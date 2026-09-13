@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\""
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -64,6 +65,7 @@
     "next-themes": "^0.3.0",
     "pg": "^8.23.0",
     "postcss": "8.4.30",
+    "qrcode.react": "^4.2.0",
     "razorpay": "^2.9.8",
     "react": "19.0.0",
     "react-day-picker": "^8.10.1",

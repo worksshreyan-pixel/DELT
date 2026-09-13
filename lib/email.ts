@@ -4,6 +4,8 @@
 // ==============================================================================
 
 import { env, hasEmailConfig } from '@/lib/env';
+import { renderDealCardEmailHtml } from '@/lib/deal-card-email';
+import { buildDealCardData, getDealCardStatusMeta } from '@/lib/deal-card-data';
 
 export interface SendOtpEmailPayload {
   to: string;
@@ -24,6 +26,105 @@ export interface DealInvitationEmailPayload {
   dealCurrency: string;
   dealUrl: string;
   dealCode?: string;
+  /** Existing deal status for the Deal Card — optional for backward compat. */
+  dealStatus?: string;
+}
+
+/**
+ * Creator-facing Deal Created confirmation (mirrored from the client invite).
+ * Same Deal Card, so both sides see the identical visual identity.
+ */
+export interface DealCreatedEmailPayload {
+  creatorEmail: string;
+  creatorName: string;
+  dealTitle: string;
+  dealCode: string;
+  dealUrl: string;
+  clientName: string;
+  /** Real deal price — rendered on the card's Value cell. Omit only when the
+   *  price is genuinely unavailable in this context (the Value cell is then
+   *  intentionally omitted rather than presenting a false ₹0). */
+  dealPrice?: number;
+  /** Deal currency for `dealPrice`; defaults to INR. */
+  dealCurrency?: 'INR' | 'USD' | 'EUR' | 'GBP';
+}
+
+export async function sendDealCreatedEmail(
+  payload: DealCreatedEmailPayload
+): Promise<EmailSendResult> {
+  const { creatorEmail, creatorName, dealTitle, dealCode, dealUrl, clientName, dealPrice, dealCurrency = 'INR' } = payload;
+
+  // Never present a false ₹0: when the real price is available it is rendered
+  // on the card's Value cell; when it is genuinely unknown, the Value cell is
+  // intentionally omitted instead of displaying fabricated financial data.
+  const hasRealPrice = typeof dealPrice === 'number' && dealPrice > 0;
+  const dealCardData = buildDealCardData({
+    deal: {
+      dealCode: dealCode || '',
+      title: dealTitle,
+      price: hasRealPrice ? dealPrice : 0,
+      currency: dealCurrency,
+      status: 'sent' as Parameters<typeof buildDealCardData>[0]['deal']['status'],
+      createdAt: new Date().toISOString(),
+      deadline: undefined,
+      description: '',
+      scope: [],
+    },
+    creatorName,
+    clientName,
+    priceKnown: hasRealPrice,
+  });
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deal Created — ${escapeHtml(dealTitle)}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 32px 16px; color: #0f172a;">
+  <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);">
+    <div style="background-color: #0f172a; padding: 24px 32px; text-align: left;">
+      <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.5px; color: #ffffff;">DELT</span>
+    </div>
+
+    <div style="padding: 32px;">
+      <h2 style="font-size: 20px; font-weight: 600; color: #0f172a; margin-top: 0; margin-bottom: 8px;">
+        Deal Created Thanks, ${escapeHtml(creatorName)}
+      </h2>
+      <p style="font-size: 15px; line-height: 1.5; color: #475569; margin-top: 0; margin-bottom: 24px;">
+        Your deal is ready. The Deal Card below captures the deal identity — same one the client receives.
+      </p>
+
+      <!-- Deal Card (same as the client invitation) -->
+      ${renderDealCardEmailHtml(dealCardData)}
+
+      <div style="text-align: center; margin-bottom: 24px;">
+        <a href="${escapeHtml(dealUrl)}" target="_blank" style="display: inline-block; background-color: #0f172a; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; padding: 14px 32px; border-radius: 8px;">
+          Open Deal Workspace &rarr;
+        </a>
+      </div>
+
+      <p style="font-size: 12px; color: #64748b; word-break: break-all; margin-bottom: 24px;">
+        Deal Code: ${escapeHtml(dealCode)}
+      </p>
+    </div>
+
+    <div style="background-color: #f8fafc; padding: 16px 32px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8; text-align: center;">
+      DELT · Private Transaction Platform for Independent Creators
+    </div>
+  </div>
+</body>
+</html>
+`;
+
+  return sendRawEmail({
+    to: creatorEmail,
+    subject: `Deal Created: "${escapeHtml(dealTitle)}"`,
+    html,
+    text: `Your deal "${dealTitle}" is created. Deal code: ${dealCode || ''}\n\nOpen: ${dealUrl}\n\nDELT`,
+  });
 }
 
 export interface PaymentConfirmationEmailPayload {
@@ -265,6 +366,26 @@ export async function sendDealInvitationEmail(
 
   const formattedAmount = `${dealCurrency === 'INR' ? '₹' : dealCurrency + ' '}${dealPrice.toLocaleString('en-IN')}`;
 
+  // Deal Card — same visual identity as the web card, rendered email-safe.
+  // Only already-public fields are passed in: no tokens, OTPs, emails or IDs.
+  const dealCardHtml = renderDealCardEmailHtml(
+    buildDealCardData({
+      deal: {
+        dealCode: dealCode || '',
+        title: dealTitle,
+        price: dealPrice,
+        currency: (dealCurrency as 'INR' | 'USD' | 'EUR' | 'GBP') || 'INR',
+        status: (payload.dealStatus || 'sent') as Parameters<typeof buildDealCardData>[0]['deal']['status'],
+        createdAt: new Date().toISOString(),
+        deadline: undefined,
+        description: dealDescription || '',
+        scope: [],
+      },
+      creatorName,
+      clientName,
+    })
+  );
+
   const html = `
 <!DOCTYPE html>
 <html>
@@ -292,27 +413,7 @@ export async function sendDealInvitationEmail(
       </p>
 
       <!-- Deal Card -->
-      <div style="background-color: #f1f5f9; border-radius: 8px; padding: 20px; margin-bottom: 24px; border: 1px solid #e2e8f0;">
-        <div style="font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">
-          Project
-        </div>
-        <div style="font-size: 16px; font-weight: 600; color: #0f172a; margin-bottom: 12px;">
-          ${escapeHtml(dealTitle)}
-        </div>
-        ${
-          dealDescription
-            ? `<div style="font-size: 13px; color: #475569; margin-bottom: 14px; line-height: 1.4;">
-                ${escapeHtml(dealDescription)}
-              </div>`
-            : ''
-        }
-        <div style="font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">
-          Agreed Amount
-        </div>
-        <div style="font-size: 18px; font-weight: 700; color: #0f172a;">
-          ${formattedAmount}
-        </div>
-      </div>
+      ${dealCardHtml}
 
       <p style="font-size: 14px; line-height: 1.5; color: #475569; margin-bottom: 28px;">
         Inside your private Deal workspace, you can review project details, communicate directly with the creator, negotiate pricing, make secure payment, and download verified deliverables.

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { generateDealToken, generateDealCode, getClientDealUrl } from '@/lib/deal-url';
-import { sendDealInvitationEmail } from '@/lib/email';
+import { sendDealInvitationEmail, sendDealCreatedEmail } from '@/lib/email';
 import { serializeDescription } from '@/lib/utils';
 
 import { FREE_PLAN_DEAL_LIMIT } from '@/lib/plans';
@@ -340,7 +340,8 @@ export async function POST(request: Request) {
       timestamp: new Date().toISOString()
     }));
 
-    const emailResult = await sendDealInvitationEmail({
+    // Client invitation (with the Deal Card) — the email the client receives.
+    const invitationEmailResult = await sendDealInvitationEmail({
       clientName: clientName.trim(),
       clientEmail: clientEmail.trim().toLowerCase(),
       creatorName: creatorDisplayName,
@@ -348,20 +349,21 @@ export async function POST(request: Request) {
       dealPrice: price,
       dealCurrency: currency,
       dealUrl: canonicalDealUrl,
-      dealCode: deal.deal_code || deal.id,
+      dealCode: deal.deal_code || deal.id || '',
+      dealStatus: deal.status || 'sent',
     });
 
     console.log(`[INVITATION_EMAIL_RESULT]`, JSON.stringify({
       dealId: deal.id,
-      success: emailResult.success,
-      delivered: emailResult.delivered,
-      simulated: emailResult.simulated,
-      messageId: emailResult.messageId || null,
-      error: emailResult.error || null,
+      success: invitationEmailResult.success,
+      delivered: invitationEmailResult.delivered,
+      simulated: invitationEmailResult.simulated,
+      messageId: invitationEmailResult.messageId || null,
+      error: invitationEmailResult.error || null,
       timestamp: new Date().toISOString()
     }));
 
-    if (emailResult.delivered) {
+    if (invitationEmailResult.delivered) {
       await admin.from('deal_events').insert({
         deal_id: deal.id,
         type: 'deal_shared',
@@ -371,12 +373,24 @@ export async function POST(request: Request) {
       });
     }
 
+    // Creator confirmation (with the same Deal Card) — keep both sides in sync.
+    await sendDealCreatedEmail({
+      creatorEmail: user.email || '',
+      creatorName: creatorDisplayName,
+      dealTitle: title.trim(),
+      dealCode: deal.deal_code || deal.id || '',
+      dealUrl: canonicalDealUrl,
+      clientName: clientName.trim(),
+      dealPrice: price,
+      dealCurrency: (currency as 'INR' | 'USD' | 'EUR' | 'GBP') || 'INR',
+    }).catch(() => {});
+
     return NextResponse.json({
       success: true,
       deal,
       token: deal.token,
       url: canonicalDealUrl,
-      emailResult,
+      emailResult: invitationEmailResult,
       deliverableId: primaryDeliverableId,
       filesUploaded: 0,
     });
