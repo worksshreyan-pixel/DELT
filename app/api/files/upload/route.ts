@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { parseDescription } from '@/lib/utils';
+import { storageRegistry } from '@/lib/storage/registry';
+import { SupabaseStorageProvider } from '@/lib/storage/providers/supabase-provider';
+
+// Ensure provider is registered
+storageRegistry.register(new SupabaseStorageProvider());
 
 export async function POST(request: Request) {
   try {
@@ -73,6 +78,7 @@ export async function POST(request: Request) {
       const versionNum = (count || 0) + 1;
 
       // Determine deliverable ID
+      // Prepare target deliverables
       let targetDeliverableId = deliverableId;
       if (!targetDeliverableId) {
         const { data: firstDeliv } = await admin
@@ -117,9 +123,26 @@ export async function POST(request: Request) {
         .select()
         .single();
 
-      if (versionError) {
-        return NextResponse.json({ error: versionError.message }, { status: 500 });
+      if (versionError || !versionRecord) {
+        return NextResponse.json({ error: versionError?.message || 'Failed to create version' }, { status: 500 });
       }
+
+      // Also insert into normalized storage_objects table
+      const provider = storageRegistry.getDefaultProvider();
+      
+      const storageObjectInserts = uploadedFileItems.map((f: any) => ({
+        deal_id: dealId,
+        deliverable_id: targetDeliverableId,
+        file_version_id: versionRecord.id,
+        provider: provider.id,
+        ownership_type: provider.ownershipType,
+        object_path: f.path,
+        name: f.name,
+        mime_type: f.type,
+        size: Number(f.size || 0),
+      }));
+
+      await admin.from('storage_objects').insert(storageObjectInserts);
 
       // Trigger video preview generation
       for (const fileItem of uploadedFileItems) {

@@ -167,17 +167,31 @@ export default function StoragePage() {
               />
             ) : (
               <div className="space-y-2">
-                {allFiles.map((file) => (
-                  <div key={file.id} className="flex items-center gap-3 rounded-lg border border-border p-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted shrink-0">
-                      <File className="h-4 w-4 text-muted-foreground" />
+                {allFiles.map((file: any) => {
+                  const isExternal = file.ownershipType === 'CUSTOMER_MANAGED' || (file.provider && file.provider !== 'supabase');
+                  const providerName = isExternal ? (file.provider || 'External Storage') : 'Supabase';
+                  
+                  return (
+                    <div key={file.id} className="flex items-center gap-3 rounded-lg border border-border p-3">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted shrink-0">
+                        <File className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate flex items-center gap-2">
+                          {file.name}
+                          {isExternal ? (
+                             <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-sm dark:bg-blue-900/30 dark:text-blue-400">External ({providerName})</span>
+                          ) : (
+                             <span className="text-[10px] bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded-sm dark:bg-gray-800 dark:text-gray-400">DELT Storage</span>
+                          )}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {isExternal ? 'Referenced file' : formatBytes(file.size || 0)}
+                        </p>
+                      </div>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{file.name}</p>
-                      <p className="text-xs text-muted-foreground">{formatBytes(file.size)}</p>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>

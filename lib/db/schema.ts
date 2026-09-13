@@ -634,3 +634,89 @@ export const clientAccessSessionsRelations = relations(clientAccessSessions, ({ 
     references: [deals.id],
   }),
 }));
+
+// ------------------------------------------------------------------------------
+// 15. Storage Architecture
+// ------------------------------------------------------------------------------
+export const storageConnections = pgTable(
+  'storage_connections',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => profiles.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull(), // e.g. 'supabase', 'google_drive', 'dropbox'
+    providerType: text('provider_type').notNull(), // 'DELT_MANAGED' | 'CUSTOMER_MANAGED'
+    status: text('status').notNull().default('connected'), // 'connected', 'disconnected', 'error', 'expired'
+    externalAccountId: text('external_account_id'),
+    displayName: text('display_name'),
+    metadata: jsonb('metadata').default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    disconnectedAt: timestamp('disconnected_at', { withTimezone: true }),
+  },
+  (table) => ({
+    userIdIdx: index('idx_storage_connections_user_id').on(table.userId),
+  })
+);
+
+export const storageObjects = pgTable(
+  'storage_objects',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    dealId: uuid('deal_id')
+      .notNull()
+      .references(() => deals.id, { onDelete: 'cascade' }),
+    deliverableId: uuid('deliverable_id')
+      .references(() => deliverables.id, { onDelete: 'set null' }),
+    fileVersionId: uuid('file_version_id')
+      .references(() => fileVersions.id, { onDelete: 'set null' }),
+    connectionId: uuid('connection_id')
+      .references(() => storageConnections.id, { onDelete: 'set null' }),
+    provider: text('provider').notNull(),
+    ownershipType: text('ownership_type').notNull(), // 'DELT_MANAGED' | 'CUSTOMER_MANAGED'
+    externalObjectId: text('external_object_id'),
+    externalUrl: text('external_url'),
+    objectPath: text('object_path'), // For Supabase / S3 keys
+    name: text('name').notNull(),
+    mimeType: text('mime_type'),
+    size: bigint('size', { mode: 'number' }).notNull().default(0),
+    checksum: text('checksum'),
+    metadata: jsonb('metadata').default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (table) => ({
+    dealIdIdx: index('idx_storage_objects_deal_id').on(table.dealId),
+    fileVersionIdIdx: index('idx_storage_objects_file_version_id').on(table.fileVersionId),
+  })
+);
+
+export const storageConnectionsRelations = relations(storageConnections, ({ one, many }) => ({
+  user: one(profiles, {
+    fields: [storageConnections.userId],
+    references: [profiles.id],
+  }),
+  objects: many(storageObjects),
+}));
+
+export const storageObjectsRelations = relations(storageObjects, ({ one }) => ({
+  deal: one(deals, {
+    fields: [storageObjects.dealId],
+    references: [deals.id],
+  }),
+  deliverable: one(deliverables, {
+    fields: [storageObjects.deliverableId],
+    references: [deliverables.id],
+  }),
+  fileVersion: one(fileVersions, {
+    fields: [storageObjects.fileVersionId],
+    references: [fileVersions.id],
+  }),
+  connection: one(storageConnections, {
+    fields: [storageObjects.connectionId],
+    references: [storageConnections.id],
+  }),
+}));
+

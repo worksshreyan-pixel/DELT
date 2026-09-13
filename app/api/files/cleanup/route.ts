@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { storageRegistry } from '@/lib/storage/registry';
+import { SupabaseStorageProvider } from '@/lib/storage/providers/supabase-provider';
+
+storageRegistry.register(new SupabaseStorageProvider());
 
 export async function POST(request: Request) {
   try {
@@ -53,21 +57,22 @@ export async function POST(request: Request) {
             if (isRetention && isExpired) {
               logs.push(`Processing expired file: ${f.name} (id: ${f.id})`);
               
-              // A. Delete Original File from Supabase Storage
-              try {
-                const { error: delOriginalErr } = await admin.storage
-                  .from('deal-files')
-                  .remove([f.path]);
-
-                if (delOriginalErr) {
-                  console.error(`Failed to delete original file ${f.path}:`, delOriginalErr);
-                  // Do not fail the whole transaction, but mark it for retry
-                  return f;
-                }
-                logs.push(`Deleted original storage object: ${f.path}`);
-              } catch (storageErr) {
-                console.error(`Storage error removing original ${f.path}:`, storageErr);
-                return f;
+              // Assume DELT_MANAGED (Supabase) for legacy file_versions unless marked otherwise
+              const ownershipType = f.ownershipType || 'DELT_MANAGED';
+              
+              if (ownershipType === 'CUSTOMER_MANAGED') {
+                 // UNLINK ONLY. Never physically delete customer-managed external storage here.
+                 logs.push(`Unlinked customer-managed external storage object reference: ${f.name}`);
+              } else {
+                 // A. Delete Original File from Supabase Storage
+                 try {
+                   const provider = storageRegistry.getDefaultProvider();
+                   await provider.deletePhysicalObject('system', f.path);
+                   logs.push(`Deleted original storage object: ${f.path}`);
+                 } catch (storageErr) {
+                   console.error(`Storage error removing original ${f.path}:`, storageErr);
+                   return f;
+                 }
               }
 
               // B. Delete Preview File if it exists

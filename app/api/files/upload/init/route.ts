@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { storageRegistry } from '@/lib/storage/registry';
+import { SupabaseStorageProvider } from '@/lib/storage/providers/supabase-provider';
+
+// Ensure the provider is registered
+storageRegistry.register(new SupabaseStorageProvider());
 
 export async function POST(request: Request) {
   try {
@@ -58,24 +63,24 @@ export async function POST(request: Request) {
 
     const versionNum = (count || 0) + 1;
 
-    // Clean file name
-    const cleanFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const storagePath = isPreview
-      ? `previews/${dealId}/v${versionNum}/${Date.now()}_${cleanFileName}`
-      : `${dealId}/v${versionNum}/${Date.now()}_${cleanFileName}`;
-
-    const { data: uploadUrlData, error: uploadUrlError } = await admin.storage
-      .from('deal-files')
-      .createSignedUploadUrl(storagePath);
-
-    if (uploadUrlError || !uploadUrlData?.signedUrl) {
-      console.error('Error generating signed upload URL:', uploadUrlError);
-      return NextResponse.json({ error: 'Failed to generate signed upload URL' }, { status: 500 });
+    // Use provider abstraction
+    const provider = storageRegistry.getDefaultProvider();
+    
+    if (!provider.capabilities.canUpload) {
+       return NextResponse.json({ error: 'Selected provider does not support uploads' }, { status: 400 });
     }
 
+    const uploadInit = await provider.initializeUpload(
+      user.id,
+      dealId,
+      { name: fileName, size: fileSize },
+      { isPreview, versionNum }
+    );
+
     return NextResponse.json({
-      signedUrl: uploadUrlData.signedUrl,
-      filePath: storagePath,
+      signedUrl: uploadInit.signedUrl,
+      filePath: uploadInit.objectPath,
+      provider: provider.id,
       versionNum
     });
   } catch (error: any) {

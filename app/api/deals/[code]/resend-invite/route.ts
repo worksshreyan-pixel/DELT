@@ -47,6 +47,7 @@ export async function POST(
       dealCurrency: deal.currency || 'INR',
       dealUrl: canonicalDealUrl,
       dealCode: deal.dealCode || deal.id,
+      dealStatus: deal.status || 'sent',
     });
 
     console.log(`[INVITATION_EMAIL_RESULT]`, JSON.stringify({

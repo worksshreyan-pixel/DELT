@@ -22,6 +22,7 @@ import {
   Sparkles,
   Download,
   Copy,
+  Link as LinkIcon,
   Share2,
   ExternalLink,
   Edit,
@@ -48,6 +49,7 @@ import { Timeline } from '@/components/timeline-event';
 import { InvoicePreview } from '@/components/invoices/invoice-preview';
 import { EmptyState } from '@/components/empty-state';
 import { ScopeMilestones } from '@/components/scope-milestones';
+import { DealCard } from '@/components/deal/deal-card';
 import { formatCurrency } from '@/lib/plans';
 import { createClient } from '@/lib/supabase/client';
 import { hasSupabasePublicConfig } from '@/lib/env';
@@ -290,11 +292,15 @@ export function DealWorkspace({
   const [closing, setClosing] = useState(false);
   const [closeError, setCloseError] = useState('');
   const [linkCopied, setLinkCopied] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
 
   const canonicalUrl = getDealPublicUrl(currentDeal.dealCode || currentDeal.token || (currentDeal as any).id);
   const isClosed = currentDeal.status === 'closed';
 
   const handleShare = async () => {
+    // Native share sheet first (mobile); the polished share surface is the
+    // fallback/home for desktop. The canonical deal URL is unchanged.
     if (typeof navigator !== 'undefined' && navigator.share) {
       try {
         await navigator.share({
@@ -304,12 +310,10 @@ export function DealWorkspace({
         });
         return;
       } catch (err) {
-        // Fallback to copy
+        // User dismissed or share failed — open the share surface instead.
       }
     }
-    navigator.clipboard.writeText(canonicalUrl);
-    setLinkCopied(true);
-    setTimeout(() => setLinkCopied(false), 2000);
+    setShareOpen(true);
   };
 
   async function handleCloseDeal() {
@@ -404,7 +408,7 @@ export function DealWorkspace({
                 variant="outline"
                 size="sm"
                 className="h-8 gap-1.5 text-xs font-medium"
-                onClick={handleShare}
+                onClick={() => setShareOpen(true)}
               >
                 <Share2 className="h-3.5 w-3.5" />
                 Share
@@ -458,6 +462,61 @@ export function DealWorkspace({
           <ActivityTab events={events} />
         </TabsContent>
       </Tabs>
+
+      {/* Share Deal surface — Deal Card as the visual centerpiece */}
+      <Dialog open={shareOpen} onOpenChange={(open) => { setShareOpen(open); if (!open) setShareCopied(false); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Share Deal</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <DealCard
+              deal={currentDeal}
+              creatorName={creatorName}
+              clientName={clientName}
+              deliverablesCount={deliverables.length}
+              milestones={milestones}
+              variant="share"
+            />
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 p-2.5">
+              <LinkIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="flex-1 truncate select-all font-mono text-xs">{canonicalUrl}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 shrink-0 gap-1.5 text-xs"
+                onClick={() => {
+                  navigator.clipboard.writeText(canonicalUrl);
+                  setShareCopied(true);
+                  setTimeout(() => setShareCopied(false), 2000);
+                }}
+              >
+                {shareCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                {shareCopied ? 'Copied!' : 'Copy'}
+              </Button>
+            </div>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              The link opens the client&apos;s private workspace. Access stays protected by email OTP verification.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  navigator.clipboard.writeText(canonicalUrl);
+                  setShareCopied(true);
+                  setTimeout(() => setShareCopied(false), 2000);
+                }}
+              >
+                {shareCopied ? 'Link Copied!' : 'Copy Link'}
+              </Button>
+              <Button className="w-full" onClick={() => window.open(canonicalUrl, '_blank')}>
+                Open Client View
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Secure File Preview Modal for Creator */}
       <Dialog open={previewModalOpen} onOpenChange={setPreviewModalOpen}>
@@ -577,8 +636,8 @@ function OverviewTab({
   setInvoiceModalOpen?: (open: boolean) => void;
 }) {
   return (
-    <div className="grid gap-6 lg:grid-cols-3">
-      <div className="lg:col-span-2 space-y-6">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
+      <div className="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Project Details</CardTitle>
@@ -645,6 +704,16 @@ function OverviewTab({
       </div>
 
       <div className="space-y-6">
+        <div className="lg:sticky lg:top-6 lg:self-start">
+          <DealCard
+            deal={deal}
+            creatorName={creatorName}
+          clientName={clientName}
+          deliverablesCount={deliverables.length}
+          milestones={milestones}
+            variant="workspace"
+          />
+        </div>
         {(() => {
           const activeInvoice = invoices?.find(i => i.status !== 'draft');
           if (!activeInvoice) return null;

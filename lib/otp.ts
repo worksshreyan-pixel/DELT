@@ -561,6 +561,15 @@ export async function verifyDealOtp(
   }
 
   const parsed = parseDescription(deal.description);
+
+  // Creator display name — resolved here so the client portal can show the
+  // real creator on the Deal Card (same card identity as the creator side).
+  const { data: creatorProfile } = await admin
+    .from('profiles')
+    .select('display_name')
+    .eq('id', deal.creator_id)
+    .maybeSingle();
+
   const resolvedDeal = {
     id: deal.id,
     token: deal.token,
@@ -579,6 +588,7 @@ export async function verifyDealOtp(
     lastActivityAt: deal.last_activity_at || deal.created_at,
     createdAt: deal.created_at,
     previewEnabled: parsed.previewEnabled,
+    creatorName: creatorProfile?.display_name || 'Creator',
   };
 
   console.log(`[CLIENT_DEAL_RESOLUTION]`, JSON.stringify({

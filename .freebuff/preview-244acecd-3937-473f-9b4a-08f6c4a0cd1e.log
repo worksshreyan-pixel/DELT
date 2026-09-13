@@ -1,0 +1,36 @@
+
+> nextjs@0.1.0 dev
+> next dev
+
+   ▲ Next.js 15.5.21
+   - Local:        http://localhost:51858
+   - Network:      http://192.168.0.106:51858
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 1661ms
+ ✓ Compiled /middleware in 447ms (173 modules)
+ ○ Compiling / ...
+ ✓ Compiled / in 7.8s (1621 modules)
+ GET / 200 in 8860ms
+ ✓ Compiled in 1292ms (740 modules)
+ GET / 200 in 210ms
+ GET / 200 in 237ms
+ GET / 200 in 242ms
+ ○ Compiling /login ...
+ ✓ Compiled /login in 1072ms (1618 modules)
+ GET /login 200 in 1516ms
+ GET / 200 in 356ms
+ ✓ Compiled in 587ms (752 modules)
+ ✓ Compiled in 966ms (1791 modules)
+ ○ Compiling /card-review ...
+ ✓ Compiled /card-review in 1168ms (1660 modules)
+ GET /card-review 200 in 1612ms
+ GET / 200 in 217ms
+ GET /card-review 200 in 88ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 1787ms (1796 modules)
+ GET /card-review 404 in 1396ms
+ GET /card-review 404 in 147ms
+ GET /card-review 404 in 125ms
+[?25h

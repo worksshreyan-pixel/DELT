@@ -51,6 +51,7 @@ export async function POST(
       authorized: true,
       clientSessionToken: result.clientSessionToken,
       deal: result.deal,
+      creatorName: result.deal.creatorName || 'Creator',
     });
   } catch (error: any) {
     console.error('Error verifying OTP:', error);

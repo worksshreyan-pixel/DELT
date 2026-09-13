@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { verifyClientSessionToken } from '@/lib/otp';
+import { storageRegistry } from '@/lib/storage/registry';
+import { SupabaseStorageProvider } from '@/lib/storage/providers/supabase-provider';
+
+// Ensure provider is registered
+storageRegistry.register(new SupabaseStorageProvider());
 
 export async function POST(request: Request) {
   try {
@@ -35,22 +40,18 @@ export async function POST(request: Request) {
       const cleanFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
       const isPreview = body.isPreview === true;
       const version = body.version || 1;
-      const storagePath = isPreview
-        ? `previews/${dealId}/v${version}/${Date.now()}_${cleanFileName}`
-        : `${dealId}/v${version}/${Date.now()}_${cleanFileName}`;
-
-      const { data: uploadUrlData, error: uploadUrlError } = await admin.storage
-        .from('deal-files')
-        .createSignedUploadUrl(storagePath);
-
-      if (uploadUrlError || !uploadUrlData?.signedUrl) {
-        console.error('Error generating signed upload URL:', uploadUrlError);
-        return NextResponse.json({ error: 'Failed to generate signed upload URL' }, { status: 500 });
-      }
+      const provider = storageRegistry.getDefaultProvider();
+      const uploadInit = await provider.initializeUpload(
+        user.id,
+        dealId,
+        { name: fileName, size: 0 },
+        { isPreview, versionNum: version }
+      );
 
       return NextResponse.json({
-        signedUrl: uploadUrlData.signedUrl,
-        filePath: storagePath
+        signedUrl: uploadInit.signedUrl,
+        filePath: uploadInit.objectPath,
+        provider: provider.id
       });
     }
 
@@ -144,16 +145,17 @@ export async function POST(request: Request) {
       );
     }
 
-    // 5. Generate short-lived signed URL (60 seconds) from private Supabase Storage
-    const { data: signedUrlData, error: signError } = await admin.storage
-      .from('deal-files')
-      .createSignedUrl(filePath, 60);
+    // 5. Generate short-lived signed URL (60 seconds) from provider
+    // Check if targetFileItem specifies ownership/provider
+    const ownershipType = targetFileItem?.ownershipType || 'DELT_MANAGED';
+    const providerId = targetFileItem?.provider || 'supabase';
+    
+    const provider = storageRegistry.getProvider(providerId);
+    
+    // The provider's getAccessUrl returns a temporary URL
+    const accessUrl = await provider.getAccessUrl('system', filePath);
 
-    if (signError || !signedUrlData?.signedUrl) {
-      return NextResponse.json({ error: 'Failed to generate signed download link' }, { status: 500 });
-    }
-
-    return NextResponse.json({ signedUrl: signedUrlData.signedUrl });
+    return NextResponse.json({ signedUrl: accessUrl });
   } catch (error: any) {
     console.error('Error generating signed URL:', error);
     return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 });

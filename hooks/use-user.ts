@@ -40,12 +40,27 @@ export function useUser(): UserContextState {
         .eq('id', authUser.id)
         .maybeSingle();
 
+      // The profiles table uses snake_case columns (display_name, avatar_url,
+      // …) while the Profile interface is camelCase — normalize explicitly so
+      // consumers (deal card creator name, app shell, settings) never read
+      // undefined out of a raw Supabase row.
+      const rawProfile = (profileData ?? {}) as Record<string, unknown>;
+      const resolvedDisplayName =
+        (rawProfile.display_name as string | undefined) ||
+        (rawProfile.displayName as string | undefined) ||
+        (authUser.user_metadata?.displayName as string | undefined) ||
+        authUser.email?.split('@')[0] ||
+        'Creator';
+
       const userProfile: Profile = profileData
-        ? (profileData as Profile)
+        ? {
+            ...(rawProfile as unknown as Profile),
+            displayName: resolvedDisplayName,
+          }
         : {
             id: authUser.id,
             email: authUser.email || '',
-            displayName: authUser.user_metadata?.displayName || authUser.email?.split('@')[0] || 'Creator',
+            displayName: resolvedDisplayName,
             createdAt: authUser.created_at,
             updatedAt: authUser.created_at,
           };
