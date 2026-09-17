@@ -41,6 +41,8 @@ export async function POST(request: Request) {
     let previewEnabled = false;
     let previewFiles: File[] = [];
     let projectStructure = 'scope_and_milestones';
+    let storageProvider = 'supabase';
+    let storageConnectionId: string | null = null;
 
     if (contentType.includes('multipart/form-data')) {
       const formData = await request.formData();
@@ -88,6 +90,8 @@ export async function POST(request: Request) {
         }
       }
       projectStructure = (formData.get('projectStructure') as string) || 'scope_and_milestones';
+      storageProvider = (formData.get('storageProvider') as string) || 'supabase';
+      storageConnectionId = (formData.get('storageConnectionId') as string) || null;
     } else {
       const body = await request.json();
       clientName = body.clientName || '';
@@ -102,6 +106,8 @@ export async function POST(request: Request) {
       deliverables = Array.isArray(body.deliverables) ? body.deliverables : [];
       previewEnabled = body.previewEnabled === true;
       projectStructure = body.projectStructure || 'scope_and_milestones';
+      storageProvider = body.storageProvider || 'supabase';
+      storageConnectionId = body.storageConnectionId || null;
     }
 
     const validStructures = ['none', 'scope', 'milestones', 'scope_and_milestones'];
@@ -113,6 +119,29 @@ export async function POST(request: Request) {
     }
 
     const admin = createAdminClient();
+
+    // Validate Google Drive connection if selected
+    if (storageProvider === 'google_drive') {
+      if (!storageConnectionId) {
+        return NextResponse.json({ error: 'Google Drive connection ID is missing.' }, { status: 400 });
+      }
+      const { data: activeConn } = await admin
+        .from('storage_connections')
+        .select('id')
+        .eq('id', storageConnectionId)
+        .eq('user_id', user.id)
+        .eq('provider', 'google_drive')
+        .eq('status', 'connected')
+        .limit(1)
+        .maybeSingle();
+
+      if (!activeConn) {
+        return NextResponse.json({ error: 'Selected Google Drive connection is invalid or disconnected.' }, { status: 403 });
+      }
+    } else {
+      // Force null if not an external provider
+      storageConnectionId = null;
+    }
 
     // 1. Check & ensure deal credit entitlement (configurable limit)
     let { data: creditRecord } = await admin
@@ -224,6 +253,8 @@ export async function POST(request: Request) {
           deadline: deadline || null,
           payment_status: 'pending',
           last_activity_at: now,
+          storage_provider: storageProvider,
+          storage_connection_id: storageConnectionId,
         })
         .select()
         .single();

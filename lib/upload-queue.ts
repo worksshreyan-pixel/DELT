@@ -164,6 +164,7 @@ class UploadQueueManager {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           dealId: task.dealId,
+          deliverableId: task.deliverableId,
           fileName: task.fileName,
           fileSize: task.fileSize,
           isPreview: false,
@@ -175,14 +176,19 @@ class UploadQueueManager {
         throw new Error(initErr.error || 'Failed to initialize upload');
       }
 
-      const { signedUrl, filePath, versionNum } = await initRes.json();
+      const { signedUrl, filePath, versionNum, provider, uploadSessionId } = await initRes.json();
 
-      // 2. Upload main file directly to Supabase storage with progress tracking
-      await this.uploadToSignedUrl(signedUrl, file, (progressPercent, uploadedBytes) => {
+      // 2. Upload main file with progress tracking
+      // For Google Drive resumable uploads, uploadToSignedUrl will parse and return the created file's metadata
+      const uploadResult = await this.uploadToSignedUrl(signedUrl, file, (progressPercent, uploadedBytes) => {
         task.bytesUploaded = uploadedBytes;
         task.percentage = progressPercent;
         this.notify();
       });
+      
+      const externalId = (provider === 'google_drive' && uploadResult && typeof uploadResult === 'object') 
+        ? uploadResult.id 
+        : undefined;
 
       // 3. Handle preview generation if applicable
       let previewPath = undefined;
@@ -214,6 +220,7 @@ class UploadQueueManager {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 dealId: task.dealId,
+                deliverableId: task.deliverableId,
                 fileName: previewName,
                 fileSize: previewBlob.size,
                 isPreview: true,
@@ -251,6 +258,8 @@ class UploadQueueManager {
         size: task.fileSize,
         type: task.fileType,
         path: filePath,
+        externalId,
+        uploadSessionId,
         previewPath,
         previewType,
         previewStatus,
@@ -278,7 +287,17 @@ class UploadQueueManager {
     signedUrl: string,
     data: Blob | File,
     onProgress?: (percent: number, loaded: number) => void
-  ): Promise<boolean> {
+  ): Promise<any> {
+    // If it's a Supabase signed URL (or standard S3 URL), we do a simple PUT.
+    // If it's a Google Drive Resumable Session URI, we can still do a simple PUT for the whole file,
+    // but to support true resumability and chunking, we should implement chunking.
+    // We can detect Google Drive by checking if the URL is to googleapis.com/upload/drive
+    const isGoogleDrive = signedUrl.includes('googleapis.com/upload/drive');
+
+    if (isGoogleDrive) {
+      return this.uploadToGoogleDriveResumable(signedUrl, data, onProgress);
+    }
+
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('PUT', signedUrl, true);
@@ -295,7 +314,12 @@ class UploadQueueManager {
 
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) {
-          resolve(true);
+          try {
+            const result = JSON.parse(xhr.responseText);
+            resolve(result);
+          } catch {
+            resolve(true);
+          }
         } else {
           reject(new Error(`Signed URL upload failed with status ${xhr.status}`));
         }
@@ -307,6 +331,133 @@ class UploadQueueManager {
 
       xhr.send(data);
     });
+  }
+
+  private async uploadToGoogleDriveResumable(
+    sessionUri: string,
+    data: Blob | File,
+    onProgress?: (percent: number, loaded: number) => void
+  ): Promise<any> {
+    const totalSize = data.size;
+    let offset = 0;
+    // Google recommends a minimum 256KB chunk size; using 1MiB for efficiency
+    const chunkSize = 1024 * 1024;
+    let retries = 3;
+
+    // Helper to mask sensitive query parameters in the session URI for logging
+    const maskUri = (uri: string) => {
+      try {
+        const u = new URL(uri);
+        return `${u.origin}${u.pathname}`;
+      } catch {
+        return uri;
+      }
+    };
+
+    while (offset < totalSize) {
+      const end = Math.min(offset + chunkSize, totalSize);
+      const chunk = data.slice(offset, end);
+      const contentRange = `bytes ${offset}-${end - 1}/${totalSize}`;
+      const contentLength = end - offset;
+
+      console.log('Google Drive resumable upload chunk:', {
+        url: maskUri(sessionUri),
+        method: 'PUT',
+        'Content-Range': contentRange,
+        'Content-Length': contentLength,
+      });
+
+      try {
+        const response = await new Promise<{
+          status: number;
+          body: string;
+          rangeHeader: string | null;
+          statusText: string;
+        }>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('PUT', sessionUri, true);
+          xhr.setRequestHeader('Content-Range', contentRange);
+          xhr.timeout = 30000; // 30s timeout
+
+          if (xhr.upload && onProgress) {
+            xhr.upload.onprogress = (e) => {
+              if (e.lengthComputable) {
+                const loaded = offset + e.loaded;
+                const percent = Math.round((loaded / totalSize) * 100);
+                onProgress(percent, loaded);
+              }
+            };
+          }
+
+          xhr.onload = () => {
+            resolve({
+              status: xhr.status,
+              body: xhr.responseText,
+              rangeHeader: xhr.getResponseHeader('Range'),
+              statusText: xhr.statusText,
+            });
+          };
+            // Handle network-level errors. If status is 0, treat as true network error; otherwise surface HTTP status.
+            xhr.onerror = () => {
+                if (xhr.status === 0) {
+                    reject(new Error('Network error during Google Drive upload chunk'));
+                } else {
+                    reject(new Error(`Upload chunk failed with HTTP status ${xhr.status}: ${xhr.statusText}`));
+                }
+            };
+          xhr.ontimeout = () => reject(new Error('Timeout error during Google Drive upload chunk'));
+          xhr.onabort = () => reject(new Error('Abort error during Google Drive upload chunk'));
+          xhr.send(chunk);
+        });
+
+        console.log('Google Drive resumable upload response:', {
+          status: response.status,
+          statusText: response.statusText,
+          rangeHeader: response.rangeHeader,
+          bodySnippet: response.body?.substring(0, 200),
+        });
+
+        if (response.status === 200 || response.status === 201) {
+          try {
+            return JSON.parse(response.body);
+          } catch {
+            return true;
+          }
+        } else if (response.status === 308) {
+          if (response.rangeHeader) {
+            const match = response.rangeHeader.match(/bytes=0-(\d+)/);
+            if (match) {
+              offset = parseInt(match[1], 10) + 1;
+              retries = 3;
+              continue;
+            }
+          }
+          offset = end;
+          retries = 3;
+          continue;
+        } else if (response.status >= 500 && retries > 0) {
+          retries--;
+          const backoff = 1000 * (4 - retries);
+          console.warn(`Google Drive upload server error ${response.status}, retrying in ${backoff}ms (${retries} retries left)`);
+          await new Promise(r => setTimeout(r, backoff));
+        } else if (response.status === 404) {
+          throw new Error('Upload session expired or invalid (404)');
+        } else {
+          throw new Error(`Google Drive upload failed with status ${response.status}: ${response.statusText}`);
+        }
+      } catch (err: any) {
+        if (retries > 0 && (err.message.includes('Network error') || err.message.includes('Timeout') || err.message.includes('Abort'))) {
+          retries--;
+          const backoff = 1000 * (4 - retries);
+          console.warn(`Google Drive upload chunk error (${err.message}), retrying in ${backoff}ms (${retries} retries left)`);
+          await new Promise(r => setTimeout(r, backoff));
+        } else {
+          console.error('Google Drive resumable upload fatal error:', { message: err.message, stack: err.stack });
+          throw err;
+        }
+      }
+    }
+    throw new Error('Upload loop ended without completion');
   }
 
   private async handleTaskCompleted(task: UploadTask, success: boolean) {

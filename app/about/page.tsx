@@ -1,16 +1,9 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
-import { Target, Users, Zap, ArrowRight } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Target } from 'lucide-react';
 import { MarketingNav } from '@/components/marketing/nav';
 import { MarketingFooter } from '@/components/marketing/footer';
-
-const values = [
-  { icon: Target, title: 'Focused', desc: 'We build one thing well: the private transaction between a creator and a client. No bloat, no feature creep.' },
-  { icon: Users, title: 'Human', desc: 'DELT is built for real freelancers managing real client work. Every decision starts with the user experience.' },
-  { icon: Zap, title: 'Efficient', desc: 'Less context switching. Fewer tools. One link that does the job of five apps. Speed is a feature.' },
-];
+import { PixelBlastBackground } from '@/components/marketing/pixel-blast-background';
+import { AboutWorkflowConvergence } from '@/components/marketing/about-workflow-convergence';
 
 export const metadata: Metadata = {
   title: 'About DELT — Secure Digital Work',
@@ -21,63 +14,33 @@ export const metadata: Metadata = {
 
 export default function AboutPage() {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="relative min-h-screen bg-background text-foreground antialiased selection:bg-amber-500/20 selection:text-amber-500">
+      {/* Monochromatic Pixel Blast Background */}
+      <PixelBlastBackground />
+
       <MarketingNav />
 
-      <section className="mx-auto max-w-4xl px-4 sm:px-6 pt-20 pb-12 text-center">
-        <h1 className="text-balance text-4xl font-display font-semibold tracking-tight sm:text-5xl">
-          We are building the workspace for digital work.
-        </h1>
-        <p className="mx-auto mt-4 max-w-xl text-lg text-muted-foreground">
-          DELT exists because freelancers deserve better than a scattered workflow across five disconnected tools.
-        </p>
-      </section>
-
-      <section className="mx-auto max-w-4xl px-4 sm:px-6 pb-16">
-        <div className="prose prose-neutral dark:prose-invert max-w-none">
-          <p className="text-muted-foreground leading-relaxed">
-            Every freelancer knows the pattern. A client reaches out on WhatsApp. Files get emailed back and forth. A payment link is sent manually. Deliverables live in a Drive folder with no version control. Tracking who said what and when becomes impossible.
-          </p>
-          <p className="text-muted-foreground leading-relaxed">
-            DELT replaces that chaos with a single, structured workspace. One private link. One conversation. one negotiation. One delivery. One payment. One complete record.
-          </p>
-          <p className="text-muted-foreground leading-relaxed">
-            We are not building a marketplace. We are not building a project management tool. We are building the professional transaction workspace that freelancers, creators and agencies use to manage private client work from start to finish.
-          </p>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-5xl px-4 sm:px-6 pb-16">
-        <div className="grid gap-4 sm:grid-cols-3">
-          {values.map((v) => (
-            <Card key={v.title} className="h-full">
-              <CardContent className="p-6">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/5 mb-3">
-                  <v.icon className="h-5 w-5 text-primary" />
-                </div>
-                <h3 className="font-semibold mb-1">{v.title}</h3>
-                <p className="text-sm text-muted-foreground">{v.desc}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </section>
-
-      <section className="border-t border-border bg-muted/20 py-16">
-        <div className="mx-auto max-w-2xl px-4 text-center">
-          <h2 className="text-balance text-2xl font-display font-semibold tracking-tight">
-            Join the freelancers building with DELT.
-          </h2>
-          <div className="mt-6">
-            <Link href="/signup">
-              <Button size="lg" className="gap-2">
-                Get started
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            </Link>
+      <main className="relative z-10 mx-auto max-w-6xl px-4 sm:px-6 pt-32 pb-24 space-y-12">
+        {/* Hero Section */}
+        <section className="bg-card/85 backdrop-blur-md rounded-2xl border border-border/80 p-8 sm:p-12 text-center shadow-xl">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border/80 bg-muted/50 px-3.5 py-1 text-xs font-mono font-medium text-muted-foreground">
+            <Target className="h-3.5 w-3.5 text-amber-500" />
+            ABOUT DELT
           </div>
-        </div>
-      </section>
+          <h1 className="text-balance text-4xl font-display font-semibold tracking-tight sm:text-5xl lg:text-6xl mb-4">
+            Built around the way digital work{' '}
+            <span className="text-muted-foreground font-normal block sm:inline">
+              actually moves.
+            </span>
+          </h1>
+          <p className="mx-auto max-w-2xl text-base sm:text-lg text-muted-foreground leading-relaxed">
+            From agreement to delivery, DELT replaces five fragmented tools with one private, structured transaction workspace for creators and clients.
+          </p>
+        </section>
+
+        {/* Narrative & Interactive Convergence Component */}
+        <AboutWorkflowConvergence />
+      </main>
 
       <MarketingFooter />
     </div>

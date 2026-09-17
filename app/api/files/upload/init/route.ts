@@ -3,6 +3,8 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { storageRegistry } from '@/lib/storage/registry';
 import { SupabaseStorageProvider } from '@/lib/storage/providers/supabase-provider';
+import { resolveStorageProvider } from '@/lib/storage/resolver';
+import { addHours } from 'date-fns';
 
 // Ensure the provider is registered
 storageRegistry.register(new SupabaseStorageProvider());
@@ -17,10 +19,10 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { dealId, fileName, fileSize, isPreview } = body;
+    const { dealId, deliverableId, fileName, fileSize, isPreview } = body;
 
-    if (!dealId || !fileName || typeof fileSize !== 'number') {
-      return NextResponse.json({ error: 'Missing required parameters: dealId, fileName, fileSize' }, { status: 400 });
+    if (!dealId || !deliverableId || !fileName || typeof fileSize !== 'number') {
+      return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
     }
 
     const admin = createAdminClient();
@@ -63,8 +65,8 @@ export async function POST(request: Request) {
 
     const versionNum = (count || 0) + 1;
 
-    // Use provider abstraction
-    const provider = storageRegistry.getDefaultProvider();
+    // Use explicit provider preference for this deal
+    const provider = await resolveStorageProvider(user.id, dealId);
     
     if (!provider.capabilities.canUpload) {
        return NextResponse.json({ error: 'Selected provider does not support uploads' }, { status: 400 });
@@ -77,11 +79,34 @@ export async function POST(request: Request) {
       { isPreview, versionNum }
     );
 
+    // Create a pending upload session
+    const { data: newSession, error: insertError } = await admin.from('upload_sessions').insert({
+      user_id: user.id,
+      deal_id: dealId,
+      deliverable_id: deliverableId,
+      provider: provider.id,
+      session_uri: uploadInit.signedUrl || '',
+      status: 'pending',
+      metadata: {
+        fileName,
+        fileSize,
+        isPreview,
+        versionNum,
+        objectPath: uploadInit.objectPath,
+      },
+      expires_at: addHours(new Date(), 24).toISOString() // 24 hours expiry for sessions
+    }).select('id').single();
+    
+    if (insertError || !newSession) {
+      throw new Error(`Failed to create upload session: ${insertError?.message || 'Unknown error'}`);
+    }
+
     return NextResponse.json({
       signedUrl: uploadInit.signedUrl,
       filePath: uploadInit.objectPath,
       provider: provider.id,
-      versionNum
+      versionNum,
+      uploadSessionId: newSession.id
     });
   } catch (error: any) {
     console.error('Error in file upload init route:', error);

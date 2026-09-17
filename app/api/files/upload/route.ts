@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { parseDescription } from '@/lib/utils';
-import { storageRegistry } from '@/lib/storage/registry';
+import { resolveStorageProvider } from '@/lib/storage/resolver';
 import { SupabaseStorageProvider } from '@/lib/storage/providers/supabase-provider';
+import { storageRegistry } from '@/lib/storage/registry';
 
 // Ensure provider is registered
 storageRegistry.register(new SupabaseStorageProvider());
@@ -104,45 +105,101 @@ export async function POST(request: Request) {
         previewType: f.previewType || undefined,
         previewStatus: f.previewStatus || undefined,
         previewGeneratedAt: f.previewGeneratedAt || (f.previewPath ? new Date().toISOString() : undefined),
+        uploadSessionId: f.uploadSessionId,
+        externalId: f.externalId,
       }));
 
-      // Insert file_version record
-      const { data: versionRecord, error: versionError } = await admin
-        .from('file_versions')
-        .insert({
-          deliverable_id: targetDeliverableId,
-          deal_id: dealId,
-          version: versionNum,
-          description: description?.trim() || 'Initial project deliverable files',
-          uploader_id: user.id,
-          uploader_name: user.user_metadata?.displayName || 'Creator',
-          files: uploadedFileItems,
-          status: 'pending_review',
-          locked: true,
-        })
-        .select()
-        .single();
+      // Use explicit provider preference for this deal
+      const provider = await resolveStorageProvider(user.id, dealId);
+      
+      // 2. Verify Upload Sessions and call Provider's completeUpload
+      const verifiedMetadata: any[] = [];
+      const sessionIdsToComplete: string[] = [];
+      
+      for (const f of uploadedFileItems) {
+        if (!f.uploadSessionId) {
+          throw new Error(`Missing upload session ID for file ${f.name}`);
+        }
+        
+        const { data: session } = await admin
+          .from('upload_sessions')
+          .select('*')
+          .eq('id', f.uploadSessionId)
+          .limit(1)
+          .maybeSingle();
 
-      if (versionError || !versionRecord) {
-        return NextResponse.json({ error: versionError?.message || 'Failed to create version' }, { status: 500 });
+        if (!session) {
+          throw new Error(`Upload session not found for file ${f.name}`);
+        }
+        
+        if (session.status !== 'pending') {
+           throw new Error(`Upload session ${f.uploadSessionId} is already ${session.status}`);
+        }
+        
+        if (session.user_id !== user.id || session.deal_id !== dealId || session.deliverable_id !== targetDeliverableId) {
+          throw new Error('Upload session ownership mismatch');
+        }
+        
+        if (new Date() > new Date(session.expires_at)) {
+          throw new Error('Upload session expired');
+        }
+
+        // Call Provider to verify external object (Google Drive verifies parent folder)
+        const metadata = await provider.completeUpload(user.id, dealId, {
+          signedUrl: session.session_uri,
+          objectPath: (session.metadata as any)?.objectPath || f.path,
+          externalObjectId: f.externalId,
+        });
+
+        verifiedMetadata.push({ fileItem: f, metadata, session });
+        sessionIdsToComplete.push(session.id);
       }
 
-      // Also insert into normalized storage_objects table
-      const provider = storageRegistry.getDefaultProvider();
-      
-      const storageObjectInserts = uploadedFileItems.map((f: any) => ({
+      // 3. Database Sequential Operations (No generic cross-table RPC available)
+      const { data: versionObj, error: verErr } = await admin.from('file_versions').insert({
+        deliverable_id: targetDeliverableId,
+        deal_id: dealId,
+        version: versionNum,
+        description: description?.trim() || 'Initial project deliverable files',
+        uploader_id: user.id,
+        uploader_name: user.user_metadata?.displayName || 'Creator',
+        files: uploadedFileItems,
+        status: 'pending_review',
+        locked: true,
+      }).select().single();
+
+      if (verErr || !versionObj) {
+        throw new Error(`Failed to create file version: ${verErr?.message}`);
+      }
+
+      const storageObjectInserts = verifiedMetadata.map(({ fileItem, metadata }) => ({
         deal_id: dealId,
         deliverable_id: targetDeliverableId,
-        file_version_id: versionRecord.id,
+        file_version_id: versionObj.id,
         provider: provider.id,
         ownership_type: provider.ownershipType,
-        object_path: f.path,
-        name: f.name,
-        mime_type: f.type,
-        size: Number(f.size || 0),
+        external_object_id: metadata.externalObjectId,
+        external_url: metadata.externalUrl,
+        object_path: metadata.objectPath || fileItem.path,
+        name: fileItem.name,
+        mime_type: fileItem.type,
+        size: Number(fileItem.size || 0),
       }));
 
-      await admin.from('storage_objects').insert(storageObjectInserts);
+      const { error: soErr } = await admin.from('storage_objects').insert(storageObjectInserts);
+      if (soErr) console.error('Failed to insert storage objects:', soErr);
+
+      if (sessionIdsToComplete.length > 0) {
+         await admin.from('upload_sessions')
+           .update({ status: 'completed', updated_at: new Date().toISOString() })
+           .in('id', sessionIdsToComplete);
+      }
+
+      await admin.from('deliverables')
+        .update({ status: 'uploaded' })
+        .eq('id', targetDeliverableId);
+
+      const versionRecord = versionObj;
 
       // Trigger video preview generation
       for (const fileItem of uploadedFileItems) {
@@ -166,11 +223,7 @@ export async function POST(request: Request) {
           .eq('user_id', user.id);
       }
 
-      // Update deliverable status to uploaded
-      await admin
-        .from('deliverables')
-        .update({ status: 'uploaded' })
-        .eq('id', targetDeliverableId);
+      // Deliverable status is updated in the transaction above
 
       // Create timeline event & system message
       await admin.from('deal_events').insert({

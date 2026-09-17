@@ -31,6 +31,7 @@ export const profiles = pgTable('profiles', {
   company: text('company'),
   website: text('website'),
   location: text('location'),
+  defaultStorageProvider: text('default_storage_provider').notNull().default('supabase'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -116,6 +117,11 @@ export const deals = pgTable(
     completedAt: timestamp('completed_at', { withTimezone: true }),
     previewEnabled: boolean('preview_enabled').notNull().default(false),
     projectStructure: text('project_structure').notNull().default('scope_and_milestones'),
+    storageProvider: text('storage_provider').notNull().default('supabase'),
+    // Reference by UUID, no strict foreign key to avoid circular deps if storageConnections is far down, 
+    // or we can use a soft relationship, but a strict DB FK is best if possible. 
+    // We omit the Drizzle FK to avoid ReferenceError since storageConnections is below, but we will enforce it in DB.
+    storageConnectionId: uuid('storage_connection_id'),
   },
   (table) => ({
     creatorIdIdx: index('idx_deals_creator_id').on(table.creatorId),
@@ -717,6 +723,48 @@ export const storageObjectsRelations = relations(storageObjects, ({ one }) => ({
   connection: one(storageConnections, {
     fields: [storageObjects.connectionId],
     references: [storageConnections.id],
+  }),
+}));
+
+export const uploadSessions = pgTable(
+  'upload_sessions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => profiles.id, { onDelete: 'cascade' }),
+    dealId: uuid('deal_id')
+      .notNull()
+      .references(() => deals.id, { onDelete: 'cascade' }),
+    deliverableId: uuid('deliverable_id')
+      .notNull()
+      .references(() => deliverables.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull(),
+    sessionUri: text('session_uri').notNull(),
+    status: text('status').notNull().default('pending'),
+    metadata: jsonb('metadata').default({}),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userIdIdx: index('idx_upload_sessions_user_id').on(table.userId),
+    dealIdIdx: index('idx_upload_sessions_deal_id').on(table.dealId),
+  })
+);
+
+export const uploadSessionsRelations = relations(uploadSessions, ({ one }) => ({
+  user: one(profiles, {
+    fields: [uploadSessions.userId],
+    references: [profiles.id],
+  }),
+  deal: one(deals, {
+    fields: [uploadSessions.dealId],
+    references: [deals.id],
+  }),
+  deliverable: one(deliverables, {
+    fields: [uploadSessions.deliverableId],
+    references: [deliverables.id],
   }),
 }));
 

@@ -17,7 +17,7 @@ describe('Storage Provider Abstraction', () => {
 
   test('Registry throws on unknown provider', () => {
     assert.throws(
-      () => storageRegistry.getProvider('google_drive'),
+      () => storageRegistry.getProvider('unknown_provider_123'),
       /not registered/
     );
   });

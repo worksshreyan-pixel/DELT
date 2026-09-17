@@ -60,6 +60,8 @@ interface DealFormData {
   currency: string;
   deliverables: string[];
   projectStructure: 'none' | 'scope' | 'milestones' | 'scope_and_milestones';
+  storageProvider: string;
+  storageConnectionId: string | null;
 }
 
 export default function CreateDealPage() {
@@ -94,6 +96,8 @@ function CreateDealForm() {
     currency: 'INR',
     deliverables: [],
     projectStructure: 'scope_and_milestones',
+    storageProvider: 'supabase',
+    storageConnectionId: null,
   });
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previewEnabled, setPreviewEnabled] = useState(false);
@@ -105,6 +109,8 @@ function CreateDealForm() {
   const [waitDealCode, setWaitDealCode] = useState<string | null>(null);
   const [activeTasks, setActiveTasks] = useState<UploadTask[]>([]);
   const [localFileVersions, setLocalFileVersions] = useState<any[]>([]);
+  const [connections, setConnections] = useState<any[]>([]);
+  const [isFetchingConnections, setIsFetchingConnections] = useState(true);
 
   // Subscribe to upload tasks
   useEffect(() => {
@@ -145,7 +151,6 @@ function CreateDealForm() {
         fetchFiles();
       }
     };
-    
     window.addEventListener('delt-files-uploaded', handleRefresh);
     fetchFiles(); // initial fetch
 
@@ -153,6 +158,44 @@ function CreateDealForm() {
       window.removeEventListener('delt-files-uploaded', handleRefresh);
     };
   }, [waitDealId]);
+
+  // Fetch active storage connections
+  useEffect(() => {
+    async function fetchConnections() {
+      try {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data: userConnections } = await supabase
+          .from('storage_connections')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('status', 'connected');
+          
+        setConnections(userConnections || []);
+        
+        // If profile defaults to google_drive, try to select it if connected
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('default_storage_provider')
+          .eq('id', user.id)
+          .single();
+          
+        if (profile?.default_storage_provider === 'google_drive' && userConnections && userConnections.length > 0) {
+           const googleConn = userConnections.find(c => c.provider === 'google_drive');
+           if (googleConn) {
+             setData(d => ({ ...d, storageProvider: 'google_drive', storageConnectionId: googleConn.id }));
+           }
+        }
+      } catch (err) {
+        console.error('Error fetching storage connections:', err);
+      } finally {
+        setIsFetchingConnections(false);
+      }
+    }
+    fetchConnections();
+  }, []);
+
 
   // Polling for processing previews
   useEffect(() => {
@@ -371,7 +414,9 @@ function CreateDealForm() {
           scope: data.scope,
           deliverables: data.deliverables,
           previewEnabled,
-          projectStructure: data.projectStructure
+          projectStructure: data.projectStructure,
+          storageProvider: data.storageProvider,
+          storageConnectionId: data.storageConnectionId
         }),
       });
 
@@ -871,6 +916,64 @@ function CreateDealForm() {
                     )}
                   </div>
 
+                  {/* File Storage Selection */}
+                  <div className="space-y-3 pt-2 border-t border-border">
+                    <Label className="text-xs font-medium">File Storage Location</Label>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Choose where files for this deal will be stored. This cannot be changed once files are uploaded.
+                    </p>
+                    {isFetchingConnections ? (
+                      <div className="text-xs text-muted-foreground">Loading storage options...</div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setData({ ...data, storageProvider: 'supabase', storageConnectionId: null })}
+                          className={cn(
+                            "flex flex-col items-start p-4 border rounded-xl transition-all",
+                            data.storageProvider === 'supabase' 
+                              ? "border-primary bg-primary/5 ring-1 ring-primary/20" 
+                              : "border-border bg-card hover:bg-muted/30"
+                          )}
+                        >
+                          <div className="flex items-center gap-2 mb-1 w-full">
+                            <span className="font-semibold text-sm">DELT Storage</span>
+                            {data.storageProvider === 'supabase' && <CheckCircle2 className="h-4 w-4 text-primary ml-auto" />}
+                          </div>
+                          <span className="text-xs text-muted-foreground text-left">Stored securely by DELT</span>
+                        </button>
+                        
+                        <button
+                          type="button"
+                          disabled={!connections.some(c => c.provider === 'google_drive')}
+                          onClick={() => {
+                             const googleConn = connections.find(c => c.provider === 'google_drive');
+                             if (googleConn) {
+                               setData({ ...data, storageProvider: 'google_drive', storageConnectionId: googleConn.id });
+                             }
+                          }}
+                          className={cn(
+                            "flex flex-col items-start p-4 border rounded-xl transition-all",
+                            data.storageProvider === 'google_drive' 
+                              ? "border-primary bg-primary/5 ring-1 ring-primary/20" 
+                              : "border-border bg-card",
+                            !connections.some(c => c.provider === 'google_drive') && "opacity-60 cursor-not-allowed"
+                          )}
+                        >
+                          <div className="flex items-center gap-2 mb-1 w-full">
+                            <span className="font-semibold text-sm">Google Drive</span>
+                            {data.storageProvider === 'google_drive' && <CheckCircle2 className="h-4 w-4 text-primary ml-auto" />}
+                          </div>
+                          {connections.some(c => c.provider === 'google_drive') ? (
+                            <span className="text-xs text-muted-foreground text-left">Customer-managed storage</span>
+                          ) : (
+                            <a href="/storage" target="_blank" className="text-xs text-primary underline text-left mt-1 z-10 hover:text-primary/80">Connect Google Drive</a>
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Deliverable Milestones */}
                   <div className="space-y-2 pt-2 border-t border-border">
                     <Label className="text-xs font-medium">Deliverable Item Names (optional)</Label>
@@ -920,6 +1023,10 @@ function CreateDealForm() {
                     <ReviewRow
                       label="Price"
                       value={data.price ? formatCurrency(Number(data.price), data.currency as 'INR' | 'USD' | 'EUR' | 'GBP') : '—'}
+                    />
+                    <ReviewRow
+                      label="Storage"
+                      value={data.storageProvider === 'google_drive' ? 'Google Drive' : 'DELT Storage'}
                     />
                     <ReviewRow
                       label="Deliverable Files"

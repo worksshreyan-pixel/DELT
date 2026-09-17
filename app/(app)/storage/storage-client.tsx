@@ -298,7 +298,9 @@ export default function StorageClient({ initialConnections = [] }: { initialConn
                 <div className="border-t border-border pt-4">
                   <Button 
                     className="w-full sm:w-auto"
-                    onClick={() => alert('Google Drive connection setup coming next')}
+                    onClick={() => {
+                      window.location.href = '/api/auth/google?prompt=consent';
+                    }}
                   >
                     Connect Google Drive
                   </Button>

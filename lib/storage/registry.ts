@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { IStorageProvider, ProviderOwnershipType } from './types';
+import { GoogleDriveProvider } from './providers/google-drive-provider';
 
 class StorageRegistry {
   private providers = new Map<string, IStorageProvider>();
@@ -30,3 +31,6 @@ class StorageRegistry {
 }
 
 export const storageRegistry = new StorageRegistry();
+
+// Initialize known providers (Supabase is initialized elsewhere or needs to be added similarly)
+storageRegistry.register(new GoogleDriveProvider());

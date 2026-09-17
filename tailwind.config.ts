@@ -14,11 +14,6 @@ const config: Config = {
         display: ['var(--font-sans)', 'Inter', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
         mono: ['var(--font-mono)', 'ui-monospace', 'monospace'],
       },
-      fontWeight: {
-        bold: '600',
-        extrabold: '600',
-        black: '600',
-      },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
         'gradient-conic':
@@ -75,6 +70,11 @@ const config: Config = {
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
+        'accent-brand': {
+          DEFAULT: 'hsl(var(--accent-brand))',
+          foreground: 'hsl(var(--accent-brand-foreground))',
+          subtle: 'hsl(var(--accent-brand-subtle))',
+        },
         chart: {
           '1': 'hsl(var(--chart-1))',
           '2': 'hsl(var(--chart-2))',
