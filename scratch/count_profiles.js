@@ -17,17 +17,10 @@ envContent.split(/\r?\n/).forEach(line => {
 const admin = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 
 async function run() {
-  console.log('Fetching 1 row from deals table...');
-  const { data, error } = await admin
-    .from('deals')
-    .select('*')
-    .limit(1);
-
-  if (error) {
-    console.log('Error selecting deals:', error.message);
-  } else {
-    console.log('Deals sample row keys:', data.length > 0 ? Object.keys(data[0]) : 'No rows in table');
-  }
+  const { data, count, error } = await admin.from('profiles').select('*', { count: 'exact' });
+  console.log('Error:', error);
+  console.log('Total profiles count:', count);
+  console.log('Profiles data:', JSON.stringify(data, null, 2));
 }
 
 run();
