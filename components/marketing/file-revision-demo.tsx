@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileCode, Lock, CheckCircle2, AlertCircle, ArrowDown, Download, Shield } from 'lucide-react';
+import { FileCode, Lock, CheckCircle2, ArrowDown, ShieldCheck, FolderLock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const VERSIONS = [
@@ -32,7 +32,7 @@ const VERSIONS = [
     date: 'Sep 17, 2026',
     size: '48.9 MB',
     status: 'Approved & Payment Gated',
-    feedback: 'All deliverables approved by Stark Corp. File download locked until escrow payout releases.',
+    feedback: 'All deliverables approved by Stark Corp. High-res files unlock automatically upon payment.',
     statusColor: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
     locked: true,
   },
@@ -54,11 +54,12 @@ export function FileRevisionDemo() {
             viewport={{ once: true, margin: '-80px' }}
             transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
           >
-            <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3 font-semibold">
-              Deliverables & Revisions
-            </p>
-            <h2 className="text-balance text-3xl font-display font-semibold tracking-tight sm:text-4xl">
-              Version history that protects your work.
+            <div className="inline-flex items-center gap-2 text-xs font-semibold text-accent-brand mb-3">
+              <FolderLock className="h-3.5 w-3.5" />
+              <span>Deliverables & Revisions</span>
+            </div>
+            <h2 className="text-balance text-3xl font-display font-semibold tracking-tight sm:text-4xl text-foreground">
+              Your work stays controlled until the deal reaches the agreed state.
             </h2>
             <p className="mt-4 text-muted-foreground leading-relaxed text-sm sm:text-base">
               No more lost files or unverified revisions. Every upload is versioned, feedback is logged, and final deliverables stay payment-gated until funds clear.
@@ -84,16 +85,16 @@ export function FileRevisionDemo() {
                     )}
                   >
                     <div className="flex items-center gap-3">
-                      <FileCode className={cn('h-5 w-5', isSelected ? 'text-amber-500' : 'text-muted-foreground')} />
+                      <FileCode className={cn('h-5 w-5', isSelected ? 'text-accent-brand' : 'text-muted-foreground')} />
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs font-bold text-foreground">{v.ver}</span>
-                          <span className="font-mono text-[10px] text-muted-foreground">({v.num})</span>
+                          <span className="text-xs font-semibold text-foreground">{v.ver}</span>
+                          <span className="text-[11px] text-muted-foreground">({v.num})</span>
                         </div>
                         <p className="text-[11px] text-muted-foreground mt-0.5">{v.date} • {v.size}</p>
                       </div>
                     </div>
-                    <span className={cn('font-mono text-[10px] font-bold px-2 py-0.5 rounded border', v.statusColor)}>
+                    <span className={cn('text-[11px] font-semibold px-2.5 py-0.5 rounded-full border', v.statusColor)}>
                       {v.status}
                     </span>
                   </button>
@@ -121,16 +122,16 @@ export function FileRevisionDemo() {
               >
                 <div className="flex items-center justify-between border-b border-border/40 pb-3">
                   <div>
-                    <h3 className="font-mono font-bold text-base text-foreground">{active.ver}</h3>
+                    <h3 className="font-semibold text-base text-foreground">{active.ver}</h3>
                     <p className="text-xs text-muted-foreground">Uploaded by Apex Studio on {active.date}</p>
                   </div>
-                  <span className={cn('font-mono text-xs font-bold px-2.5 py-1 rounded border', active.statusColor)}>
+                  <span className={cn('text-xs font-semibold px-3 py-1 rounded-full border', active.statusColor)}>
                     {active.status}
                   </span>
                 </div>
 
                 <div className="space-y-2">
-                  <span className="text-xs font-mono text-muted-foreground uppercase">Client Feedback Record</span>
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Client Feedback Record</span>
                   <div className="rounded-xl border border-border/60 bg-muted/30 p-4">
                     <p className="text-xs text-foreground/90 leading-relaxed italic">
                       &ldquo;{active.feedback}&rdquo;
@@ -138,25 +139,25 @@ export function FileRevisionDemo() {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs font-mono text-amber-600 dark:text-amber-400 font-semibold">
-                    <Shield className="h-4 w-4 shrink-0" />
-                    <span>SHA-256 Checksum: e3b0c44298fc1c149afbf4c8996fb924...</span>
+                <div className="rounded-xl border border-accent-brand/20 bg-accent-brand/5 p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs text-accent-brand font-semibold">
+                    <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-500" />
+                    <span>Protected Work: Version Verified & Audited</span>
                   </div>
                   {active.locked ? (
-                    <span className="flex items-center gap-1 font-mono text-xs font-bold text-amber-600 dark:text-amber-400">
-                      <Lock className="h-3.5 w-3.5" /> PAYMENT LOCKED
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                      <Lock className="h-3.5 w-3.5" /> Payment Locked
                     </span>
                   ) : (
-                    <span className="flex items-center gap-1 font-mono text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                      <CheckCircle2 className="h-3.5 w-3.5" /> UNLOCKED
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Unlocked
                     </span>
                   )}
                 </div>
               </motion.div>
             </AnimatePresence>
 
-            <div className="pt-3 border-t border-border/40 text-xs text-muted-foreground font-mono">
+            <div className="pt-3 border-t border-border/40 text-xs text-muted-foreground">
               Click any version on the left to inspect file relationship and lock status.
             </div>
           </div>

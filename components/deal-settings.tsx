@@ -38,6 +38,7 @@ import { createClient } from '@/lib/supabase/client';
 import { cn, serializeDescription } from '@/lib/utils';
 import type { Deal, Deliverable, FileVersion, Payment } from '@/lib/types';
 import { FileCard } from '@/components/file-card';
+import { PreviewConfig, type PreviewModeType } from '@/components/preview-config';
 
 const loadPdfLib = () => {
   return new Promise((resolve, reject) => {
@@ -225,6 +226,9 @@ export function DealSettings({
 
   // Preview & Security States
   const [editPreviewEnabled, setEditPreviewEnabled] = useState(currentDeal.previewEnabled);
+  const [editPreviewMode, setEditPreviewMode] = useState<PreviewModeType>(
+    currentDeal.previewMode || (currentDeal.storageProvider === 'google_drive' ? 'EXTERNAL' : 'AUTO')
+  );
 
   // Status & Error
   const [saving, setSaving] = useState(false);
@@ -287,6 +291,7 @@ export function DealSettings({
           currency: editCurrency,
           deadline: editDeadline ? new Date(editDeadline).toISOString() : null,
           preview_enabled: editPreviewEnabled,
+          preview_mode: editPreviewMode,
         }),
       });
 
@@ -306,6 +311,7 @@ export function DealSettings({
           currency: dbDeal.currency,
           deadline: dbDeal.deadline,
           previewEnabled: editPreviewEnabled,
+          previewMode: editPreviewMode,
         });
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 3000);
@@ -949,22 +955,18 @@ export function DealSettings({
               <div className="space-y-4">
                 <div className="space-y-1">
                   <h3 className="text-sm font-semibold">Preview & Security Settings</h3>
-                  <p className="text-xs text-muted-foreground">Control client access authentication and preview watermarks.</p>
+                  <p className="text-xs text-muted-foreground">Control client access authentication and deliverable preview rules.</p>
                 </div>
                 <hr className="border-border" />
-                <div className="flex items-center space-x-2 p-3 bg-muted/20 rounded-xl border border-border">
-                  <input
-                    type="checkbox"
-                    id="previewEnabled"
-                    checked={editPreviewEnabled}
-                    disabled={isClosed}
-                    onChange={(e) => setEditPreviewEnabled(e.target.checked)}
-                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                  />
-                  <Label htmlFor="previewEnabled" className="text-xs font-normal cursor-pointer select-none">
-                    Enable secure, watermarked client preview files
-                  </Label>
-                </div>
+
+                <PreviewConfig
+                  storageProvider={currentDeal.storageProvider || 'supabase'}
+                  previewEnabled={editPreviewEnabled}
+                  onPreviewEnabledChange={setEditPreviewEnabled}
+                  previewMode={editPreviewMode}
+                  onPreviewModeChange={setEditPreviewMode}
+                  disabled={isClosed}
+                />
 
                 <div className="rounded-xl border border-border bg-muted/10 p-4 space-y-3 text-xs">
                   <h4 className="text-xs font-semibold text-foreground uppercase tracking-wide">Client Access Control</h4>

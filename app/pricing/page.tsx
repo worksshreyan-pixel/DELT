@@ -7,7 +7,7 @@ import { ArrowRight, Check, HardDrive, CreditCard, Sparkles } from 'lucide-react
 import { Button } from '@/components/ui/button';
 import { MarketingNav } from '@/components/marketing/nav';
 import { MarketingFooter } from '@/components/marketing/footer';
-import { PixelBlastBackground } from '@/components/marketing/pixel-blast-background';
+import { GalaxyBackground } from '@/components/marketing/galaxy-background';
 import { PLAN_LIST, STORAGE_ADDONS, TRANSACTION_FEES, formatPriceForPlan, formatBytes } from '@/lib/plans';
 import { cn } from '@/lib/utils';
 
@@ -15,9 +15,9 @@ export default function PricingPage() {
   const [hoveredPlan, setHoveredPlan] = useState<string | null>(null);
 
   return (
-    <div className="relative min-h-screen bg-background text-foreground transition-colors overflow-x-hidden">
-      {/* Monochromatic Pixel Blast Background Layer */}
-      <PixelBlastBackground pixelSize={4} gap={24} />
+    <div className="relative min-h-screen bg-background text-foreground transition-colors overflow-x-hidden font-sans">
+      {/* Shared DELT Galaxy Background (55% intensity for pricing contrast) */}
+      <GalaxyBackground intensity={0.55} />
 
       <MarketingNav />
 
@@ -29,14 +29,14 @@ export default function PricingPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
           >
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-border/80 bg-card/90 px-3.5 py-1.5 text-xs font-mono font-medium text-foreground shadow-xs backdrop-blur-md">
-              <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-border/80 bg-card/90 px-3.5 py-1.5 text-xs font-semibold text-foreground shadow-xs backdrop-blur-md">
+              <Sparkles className="h-3.5 w-3.5 text-accent-brand" />
               <span>Predictable Credit-Based Pricing</span>
             </div>
             <h1 className="text-balance text-4xl font-display font-semibold tracking-tight sm:text-5xl md:text-6xl">
               Simple plans for growing digital deals.
             </h1>
-            <p className="mx-auto mt-4 max-w-xl text-base sm:text-lg text-muted-foreground leading-relaxed">
+            <p className="mx-auto mt-4 max-w-xl text-base sm:text-lg text-muted-foreground leading-relaxed font-normal">
               Buy Deal credits as you need them. Storage and processing fees are completely transparent and separate.
             </p>
           </motion.div>
@@ -59,33 +59,33 @@ export default function PricingPage() {
                   className={cn(
                     'relative overflow-hidden flex flex-col justify-between rounded-2xl border bg-card/90 p-6 shadow-xl backdrop-blur-md transition-all duration-200 hover:-translate-y-1',
                     isSelected
-                      ? 'border-amber-500 ring-1 ring-amber-500/30'
+                      ? 'border-accent-brand ring-1 ring-accent-brand/30'
                       : 'border-border/80'
                   )}
                 >
                   <div>
                     {plan.highlighted && (
                       <div className="mb-4">
-                        <span className="inline-flex items-center rounded-full bg-amber-500/10 border border-amber-500/30 px-3 py-0.5 font-mono text-[10px] font-bold text-amber-600 dark:text-amber-400">
+                        <span className="inline-flex items-center rounded-full bg-accent-brand/10 border border-accent-brand/30 px-3 py-0.5 text-[10px] font-bold text-accent-brand">
                           Most popular
                         </span>
                       </div>
                     )}
-                    <h3 className="font-semibold text-lg">{plan.name}</h3>
-                    <p className="text-xs text-muted-foreground mt-1 h-10 leading-relaxed">
+                    <h3 className="font-semibold text-lg font-display">{plan.name}</h3>
+                    <p className="text-xs text-muted-foreground mt-1 h-10 leading-relaxed font-normal">
                       {plan.description}
                     </p>
-                    <div className="mt-4 flex items-baseline gap-1 font-mono">
+                    <div className="mt-4 flex items-baseline gap-1 font-display">
                       <span className="text-3xl font-bold text-foreground">
                         {formatPriceForPlan(plan)}
                       </span>
                       {plan.price && (
-                        <span className="text-xs text-muted-foreground">/mo</span>
+                        <span className="text-xs text-muted-foreground font-medium">/mo</span>
                       )}
                     </div>
-                    <div className="mt-4 rounded-xl border border-border/60 bg-muted/40 p-3 font-mono text-xs space-y-1">
+                    <div className="mt-4 rounded-xl border border-border/60 bg-muted/40 p-3 text-xs space-y-1">
                       <p className="font-semibold text-foreground">{plan.dealCredits} Deal credits</p>
-                      <p className="text-[11px] text-muted-foreground">
+                      <p className="text-[11px] text-muted-foreground font-mono">
                         {formatBytes(plan.storageBytes)} storage included
                       </p>
                     </div>
@@ -93,7 +93,7 @@ export default function PricingPage() {
                       {plan.features.map((feature) => (
                         <li key={feature} className="flex items-start gap-2 text-xs">
                           <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                          <span className="text-muted-foreground">{feature}</span>
+                          <span className="text-muted-foreground font-normal">{feature}</span>
                         </li>
                       ))}
                     </ul>
@@ -102,7 +102,7 @@ export default function PricingPage() {
                   <Link href="/signup" className="mt-6 block">
                     <Button
                       className={cn(
-                        'w-full font-mono text-xs rounded-full transition-all',
+                        'w-full text-xs font-semibold rounded-full transition-all',
                         plan.highlighted ? 'shadow-md' : ''
                       )}
                       variant={plan.highlighted ? 'default' : 'outline'}
@@ -123,22 +123,22 @@ export default function PricingPage() {
               {/* Storage Addons Card */}
               <div className="rounded-2xl border border-border/80 bg-card p-6 shadow-xl space-y-4">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/20">
-                    <HardDrive className="h-5 w-5 text-amber-500" />
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-brand/10 border border-accent-brand/20">
+                    <HardDrive className="h-5 w-5 text-accent-brand" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-base">Storage Allowances</h3>
-                    <p className="text-xs text-muted-foreground font-mono">Isolated encrypted storage</p>
+                    <h3 className="font-semibold text-base font-display">Storage Allowances</h3>
+                    <p className="text-xs text-muted-foreground font-normal">Isolated encrypted storage</p>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">
+                <p className="text-xs text-muted-foreground leading-relaxed font-normal">
                   Included storage allowance is based on active plan. Purchased add-on storage does not expire.
                 </p>
-                <div className="space-y-2 font-mono text-xs">
+                <div className="space-y-2 text-xs">
                   {STORAGE_ADDONS.map((addon) => (
                     <div key={addon.id} className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
                       <span className="font-semibold text-foreground">{addon.label}</span>
-                      <span className="text-amber-600 dark:text-amber-400 font-bold">₹{addon.price}</span>
+                      <span className="text-accent-brand font-bold font-mono">₹{addon.price}</span>
                     </div>
                   ))}
                 </div>
@@ -147,25 +147,25 @@ export default function PricingPage() {
               {/* Transaction Fees Card */}
               <div className="rounded-2xl border border-border/80 bg-card p-6 shadow-xl space-y-4">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/20">
-                    <CreditCard className="h-5 w-5 text-amber-500" />
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-brand/10 border border-accent-brand/20">
+                    <CreditCard className="h-5 w-5 text-accent-brand" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-base">Transparent Transaction Fees</h3>
-                    <p className="text-xs text-muted-foreground font-mono">Optional escrow payments</p>
+                    <h3 className="font-semibold text-base font-display">Transparent Transaction Fees</h3>
+                    <p className="text-xs text-muted-foreground font-normal">Optional escrow payments</p>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">
+                <p className="text-xs text-muted-foreground leading-relaxed font-normal">
                   Transaction fees apply only when processing client payments through DELT escrow. Platform and processing fees are shown transparently before checkout.
                 </p>
-                <div className="space-y-2 font-mono text-xs">
+                <div className="space-y-2 text-xs">
                   <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
                     <span className="font-semibold text-foreground">DELT Platform Fee</span>
-                    <span className="text-foreground">{TRANSACTION_FEES.platformFeePercent}%</span>
+                    <span className="text-foreground font-semibold">{TRANSACTION_FEES.platformFeePercent}%</span>
                   </div>
                   <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
                     <span className="font-semibold text-foreground">Payment Processing Fee</span>
-                    <span className="text-foreground">{TRANSACTION_FEES.processingFeePercent}%</span>
+                    <span className="text-foreground font-semibold">{TRANSACTION_FEES.processingFeePercent}%</span>
                   </div>
                 </div>
               </div>
@@ -174,7 +174,7 @@ export default function PricingPage() {
         </section>
 
         {/* FAQ Section */}
-        <section className="border-t border-border/80 bg-background py-20">
+        <section className="border-t border-border/80 bg-background/60 py-20">
           <div className="mx-auto max-w-3xl px-4 sm:px-6">
             <h2 className="text-balance text-2xl font-display font-semibold tracking-tight text-center mb-10">
               Frequently asked questions
@@ -187,9 +187,9 @@ export default function PricingPage() {
                 { q: 'What happens when I run out of storage?', a: 'Existing files remain accessible. New uploads are blocked until you delete files, purchase additional storage, or upgrade your plan.' },
                 { q: 'Do I have to process payments through DELT?', a: 'No. Payment processing is optional. You can mark payments as received externally without paying transaction fees.' },
               ].map((faq) => (
-                <div key={faq.q} className="rounded-xl border border-border/80 bg-card p-5 space-y-1.5 shadow-xs">
-                  <h3 className="font-semibold text-sm text-foreground">{faq.q}</h3>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{faq.a}</p>
+                <div key={faq.q} className="rounded-xl border border-border/80 bg-card/90 p-5 space-y-1.5 shadow-xs">
+                  <h3 className="font-semibold text-sm text-foreground font-display">{faq.q}</h3>
+                  <p className="text-xs text-muted-foreground leading-relaxed font-normal">{faq.a}</p>
                 </div>
               ))}
             </div>
@@ -202,12 +202,12 @@ export default function PricingPage() {
             <h2 className="text-balance text-3xl font-display font-semibold tracking-tight">
               Start with 1 free Deal.
             </h2>
-            <p className="mt-2 text-muted-foreground text-sm">
+            <p className="mt-2 text-muted-foreground text-sm font-normal">
               No credit card required. Upgrade when you are ready to scale.
             </p>
             <div className="mt-6">
               <Link href="/signup">
-                <Button size="lg" className="gap-2 font-mono text-xs rounded-full px-8 shadow-md">
+                <Button size="lg" className="gap-2 text-xs font-semibold rounded-full px-8 shadow-md">
                   <span>Get started free</span>
                   <ArrowRight className="h-4 w-4" />
                 </Button>

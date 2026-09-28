@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, useInView, useReducedMotion } from 'framer-motion';
-import { MessageSquare, FolderCheck, DollarSign, FileSpreadsheet, FileText, Mail, ArrowRight } from 'lucide-react';
+import { MessageSquare, FolderCheck, DollarSign, FileSpreadsheet, FileText, Mail, ArrowRight, Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const TOOLS = [
@@ -27,7 +27,7 @@ const TOOLS = [
   {
     id: 'payments',
     label: 'Payment Links',
-    deltCapability: 'DELT Escrow Safeguard',
+    deltCapability: 'DELT Payment Safeguard',
     icon: DollarSign,
     desc: 'Transparent deposit holding and instant automated payouts',
     baseAngle: 120,
@@ -47,7 +47,7 @@ const TOOLS = [
     label: 'Manual Invoices',
     deltCapability: 'DELT One-Click Signoff',
     icon: FileText,
-    desc: 'Automated receipts and cryptographic transaction trail',
+    desc: 'Automated receipts and clean activity transaction trail',
     baseAngle: 240,
     radius: 140,
   },
@@ -56,7 +56,7 @@ const TOOLS = [
     label: 'Email Threads',
     deltCapability: 'DELT Audit History',
     icon: Mail,
-    desc: 'Never lose a price change or approval in buried threads',
+    desc: 'Never lose a price change or approval in buried email threads',
     baseAngle: 300,
     radius: 140,
   },
@@ -71,7 +71,7 @@ export function ProblemSection() {
   const [rotationOffset, setRotationOffset] = useState<number>(0);
   const [isPaused, setIsPaused] = useState<boolean>(false);
 
-  // Slow continuous orbital rotation
+  // Slow, subtle continuous orbital rotation
   useEffect(() => {
     if (isPaused || prefersReducedMotion) return;
     let animationFrameId: number;
@@ -79,7 +79,7 @@ export function ProblemSection() {
 
     const loop = (now: number) => {
       const elapsed = (now - startTime) * 0.001;
-      setRotationOffset(elapsed * 8); // 8 deg / sec
+      setRotationOffset(elapsed * 4); // Very slow 4 deg / sec controlled motion
       animationFrameId = requestAnimationFrame(loop);
     };
 
@@ -101,19 +101,20 @@ export function ProblemSection() {
             transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
             className="lg:col-span-5 rounded-2xl bg-card/85 border border-border/80 p-6 sm:p-7 backdrop-blur-md shadow-xs"
           >
-            <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3 font-semibold">
-              The Fragmentation Problem
-            </p>
-            <h2 className="text-balance text-3xl font-display font-semibold tracking-tight sm:text-4xl">
-              Your client work lives in six tools. It belongs in one.
+            <div className="inline-flex items-center gap-2 text-xs font-semibold text-accent-brand mb-3">
+              <Layers className="h-3.5 w-3.5" />
+              <span>Unified Workspace</span>
+            </div>
+            <h2 className="text-balance text-3xl font-display font-semibold tracking-tight sm:text-4xl text-foreground">
+              DELT replaces scattered deal management with one workspace.
             </h2>
             <p className="mt-4 text-muted-foreground leading-relaxed text-sm sm:text-base">
-              Proposals on email, updates on WhatsApp, files on Drive, payments via random links. Nothing connects, leaving you exposed to missed approvals and unpaid work.
+              Proposals on email, updates on WhatsApp, files on Drive, payments via random links. Nothing connects, leaving you exposed to scope creep and delayed payment.
             </p>
 
             {/* Capability Card */}
-            <div className="mt-6 rounded-xl border border-amber-500/30 bg-card p-4 shadow-sm transition-all">
-              <div className="flex items-center gap-2 text-xs font-mono font-bold text-amber-600 dark:text-amber-400">
+            <div className="mt-6 rounded-xl border border-accent-brand/30 bg-card p-4 shadow-sm transition-all">
+              <div className="flex items-center gap-2 text-xs font-semibold text-accent-brand">
                 <span>{selected.label}</span>
                 <ArrowRight className="h-3.5 w-3.5" />
                 <span>{selected.deltCapability}</span>
@@ -121,8 +122,8 @@ export function ProblemSection() {
               <p className="mt-2 text-xs text-foreground/90 font-medium">
                 {selected.desc}
               </p>
-              <p className="mt-2 text-[11px] text-muted-foreground italic font-mono">
-                Hover any orbital node on the right to pause movement and inspect capabilities.
+              <p className="mt-2 text-[11px] text-muted-foreground italic">
+                Hover or click any orbital node to inspect capabilities.
               </p>
             </div>
           </motion.div>
@@ -141,8 +142,8 @@ export function ProblemSection() {
               transition={{ duration: 0.5, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
               className="relative z-20 flex h-24 w-24 flex-col items-center justify-center rounded-2xl border-2 border-primary bg-primary text-primary-foreground shadow-2xl"
             >
-              <span className="font-mono font-bold text-xl tracking-tight leading-none">DELT</span>
-              <span className="text-[10px] font-mono text-primary-foreground/70 mt-1 uppercase tracking-wider">Workspace</span>
+              <span className="font-bold text-xl tracking-tight leading-none">DELT</span>
+              <span className="text-[10px] text-primary-foreground/70 mt-1 uppercase tracking-wider font-semibold">Workspace</span>
             </motion.div>
 
             {/* Orbit Ring */}
@@ -171,13 +172,13 @@ export function ProblemSection() {
                     onMouseEnter={() => setActiveTool(tool.id)}
                     onClick={() => setActiveTool(tool.id)}
                     className={cn(
-                      'group flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-mono font-medium shadow-sm transition-all cursor-pointer whitespace-nowrap',
+                      'group flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold shadow-sm transition-all cursor-pointer whitespace-nowrap',
                       isHovered
-                        ? 'border-amber-500 bg-card text-foreground shadow-md scale-110 ring-2 ring-amber-500/20 font-bold'
+                        ? 'border-accent-brand bg-card text-foreground shadow-md scale-110 ring-2 ring-accent-brand/20'
                         : 'border-border/80 bg-card/80 text-muted-foreground hover:border-foreground/30 hover:text-foreground'
                     )}
                   >
-                    <Icon className={cn('h-3.5 w-3.5', isHovered ? 'text-amber-500' : 'text-muted-foreground')} />
+                    <Icon className={cn('h-3.5 w-3.5', isHovered ? 'text-accent-brand' : 'text-muted-foreground')} />
                     <span>{tool.label}</span>
                   </button>
                 </div>

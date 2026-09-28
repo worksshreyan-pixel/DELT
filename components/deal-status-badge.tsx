@@ -21,12 +21,12 @@ export function DealStatusBadge({ status, className }: { status: DealStatus; cla
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium',
+        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold tracking-tight',
         config.className,
         className
       )}
     >
-      <span className={cn('h-1.5 w-1.5 rounded-full', config.dot)} />
+      <span className={cn('h-2 w-2 rounded-full shrink-0', config.dot)} />
       {config.label}
     </span>
   );
@@ -45,7 +45,7 @@ const paymentConfig: Record<PaymentState, { label: string; className: string }> 
 export function PaymentStatusBadge({ status, className }: { status: PaymentState; className?: string }) {
   const config = paymentConfig[status];
   return (
-    <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium', config.className, className)}>
+    <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold tracking-tight', config.className, className)}>
       {config.label}
     </span>
   );
@@ -63,7 +63,7 @@ const proposalConfig: Record<ProposalState, { label: string; className: string }
 export function ProposalStatusBadge({ status, className }: { status: ProposalState; className?: string }) {
   const config = proposalConfig[status];
   return (
-    <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium', config.className, className)}>
+    <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold tracking-tight', config.className, className)}>
       {config.label}
     </span>
   );
@@ -80,7 +80,7 @@ const deliverableConfig: Record<DeliverableStatus, { label: string; className: s
 export function DeliverableStatusBadge({ status, className }: { status: DeliverableStatus; className?: string }) {
   const config = deliverableConfig[status];
   return (
-    <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium', config.className, className)}>
+    <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold tracking-tight', config.className, className)}>
       {config.label}
     </span>
   );
@@ -95,7 +95,7 @@ const milestoneConfig: Record<MilestoneStatus, { label: string; className: strin
 export function MilestoneStatusBadge({ status, className }: { status: MilestoneStatus; className?: string }) {
   const config = milestoneConfig[status];
   return (
-    <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium', config.className, className)}>
+    <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold tracking-tight', config.className, className)}>
       {config.label}
     </span>
   );

@@ -113,7 +113,10 @@ export async function POST(request: Request) {
 
           // Transactional Emails
           try {
-            const canonicalDealUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/deal/${payment.deals?.token || ''}`;
+            const { getClientDealUrl, getCreatorUsername } = await import('@/lib/deal-url');
+            const { data: creatorProfile } = await supabase.from('profiles').select('username, display_name, email').eq('id', payment.deals?.creator_id).maybeSingle();
+            const creatorUsername = getCreatorUsername(creatorProfile);
+            const canonicalDealUrl = getClientDealUrl(payment.deals?.code || payment.deals?.token || '', creatorUsername);
             const { sendPaymentConfirmationEmail } = await import('@/lib/email');
             
             if (payment.deals?.client_email) {

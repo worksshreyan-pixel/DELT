@@ -12,13 +12,12 @@ import {
   CheckCircle2,
   Lock,
   ArrowRight,
-  ShieldCheck,
   Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MarketingNav } from '@/components/marketing/nav';
 import { MarketingFooter } from '@/components/marketing/footer';
-import { PixelBlastBackground } from '@/components/marketing/pixel-blast-background';
+import { GalaxyBackground } from '@/components/marketing/galaxy-background';
 import { cn } from '@/lib/utils';
 
 const STEPS = [
@@ -86,9 +85,9 @@ export default function HowItWorksPage() {
   const current = STEPS[activeStep];
 
   return (
-    <div className="relative min-h-screen bg-background text-foreground transition-colors overflow-x-hidden">
-      {/* Monochromatic Pixel Blast Background Layer */}
-      <PixelBlastBackground pixelSize={4} gap={24} />
+    <div className="relative min-h-screen bg-background text-foreground transition-colors overflow-x-hidden font-sans">
+      {/* Shared DELT Galaxy Background (75% intensity for How It Works) */}
+      <GalaxyBackground intensity={0.75} />
 
       <MarketingNav />
 
@@ -101,14 +100,14 @@ export default function HowItWorksPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
           >
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-border/80 bg-card/90 px-3.5 py-1.5 text-xs font-mono font-medium text-foreground shadow-xs backdrop-blur-md">
-              <Zap className="h-3.5 w-3.5 text-amber-500 animate-pulse" />
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-border/80 bg-card/90 px-3.5 py-1.5 text-xs font-semibold text-foreground shadow-xs backdrop-blur-md">
+              <Zap className="h-3.5 w-3.5 text-accent-brand animate-pulse" />
               <span>Deal Execution Guide</span>
             </div>
-            <h1 className="text-balance text-4xl font-display font-semibold tracking-tight sm:text-5xl md:text-6xl">
+            <h1 className="text-balance text-4xl font-display font-semibold tracking-tight sm:text-4xl md:text-6xl">
               How DELT works from creation to payout.
             </h1>
-            <p className="mx-auto mt-4 max-w-xl text-base sm:text-lg text-muted-foreground leading-relaxed">
+            <p className="mx-auto mt-4 max-w-xl text-base sm:text-lg text-muted-foreground leading-relaxed font-normal">
               Seven structured steps from deal creation to instant payout. Every deal follows the same clear, protected path.
             </p>
           </motion.div>
@@ -129,23 +128,23 @@ export default function HowItWorksPage() {
                     className={cn(
                       'w-full flex items-center justify-between rounded-xl border p-3.5 text-left transition-all cursor-pointer',
                       isActive
-                        ? 'border-amber-500/80 bg-card/95 shadow-md ring-1 ring-amber-500/20 scale-[1.01] backdrop-blur-md'
+                        ? 'border-accent-brand/80 bg-card/95 shadow-md ring-1 ring-accent-brand/20 scale-[1.01] backdrop-blur-md'
                         : 'border-border/80 bg-card/90 hover:bg-card hover:border-foreground/30 shadow-xs backdrop-blur-md'
                     )}
                   >
                     <div className="flex items-center gap-3">
-                      <span className="font-mono text-xs font-bold text-amber-500">
+                      <span className="text-xs font-bold text-accent-brand font-display">
                         {s.step}
                       </span>
                       <div className="flex items-center gap-2">
-                        <Icon className={cn('h-4 w-4', isActive ? 'text-amber-500' : 'text-muted-foreground')} />
+                        <Icon className={cn('h-4 w-4', isActive ? 'text-accent-brand' : 'text-muted-foreground')} />
                         <span className={cn('text-xs sm:text-sm font-semibold', isActive ? 'text-foreground' : 'text-muted-foreground')}>
                           {s.title}
                         </span>
                       </div>
                     </div>
                     {isActive && (
-                      <span className="h-2 w-2 rounded-full bg-amber-500" />
+                      <span className="h-2 w-2 rounded-full bg-accent-brand" />
                     )}
                   </button>
                 );
@@ -165,14 +164,14 @@ export default function HowItWorksPage() {
                 >
                   <div className="flex items-center justify-between border-b border-border/40 pb-4">
                     <div className="flex items-center gap-3">
-                      <span className="font-mono text-xl font-bold text-amber-500">
+                      <span className="text-xl font-bold text-accent-brand font-display">
                         STEP {current.step}
                       </span>
-                      <h3 className="text-xl font-semibold text-foreground">
+                      <h3 className="text-xl font-semibold text-foreground font-display">
                         {current.title}
                       </h3>
                     </div>
-                    <span className="font-mono text-xs font-bold px-2.5 py-1 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded bg-accent-brand/10 text-accent-brand border border-accent-brand/20">
                       {current.badge}
                     </span>
                   </div>
@@ -182,7 +181,7 @@ export default function HowItWorksPage() {
                       {current.desc}
                     </p>
                     <div className="rounded-xl border border-border/60 bg-muted/30 p-4">
-                      <p className="text-xs text-muted-foreground leading-relaxed font-mono">
+                      <p className="text-xs text-muted-foreground leading-relaxed font-normal">
                         {current.detail}
                       </p>
                     </div>
@@ -190,18 +189,18 @@ export default function HowItWorksPage() {
                 </motion.div>
               </AnimatePresence>
 
-              <div className="pt-4 border-t border-border/40 flex items-center justify-between text-xs text-muted-foreground font-mono">
+              <div className="pt-4 border-t border-border/40 flex items-center justify-between text-xs text-muted-foreground font-medium">
                 <button
                   disabled={activeStep === 0}
                   onClick={() => setActiveStep(Math.max(0, activeStep - 1))}
-                  className="hover:text-foreground disabled:opacity-30"
+                  className="hover:text-foreground disabled:opacity-30 cursor-pointer"
                 >
                   ← Previous Step
                 </button>
                 <button
                   disabled={activeStep === STEPS.length - 1}
                   onClick={() => setActiveStep(Math.min(STEPS.length - 1, activeStep + 1))}
-                  className="flex items-center gap-1 hover:text-foreground disabled:opacity-30 text-amber-600 dark:text-amber-400 font-bold"
+                  className="flex items-center gap-1 hover:text-foreground disabled:opacity-30 text-accent-brand font-semibold cursor-pointer"
                 >
                   <span>Next Step</span>
                   <ArrowRight className="h-3.5 w-3.5" />
@@ -218,12 +217,12 @@ export default function HowItWorksPage() {
               <h2 className="text-balance text-3xl font-display font-semibold tracking-tight">
                 Ready to create your first Deal?
               </h2>
-              <p className="mt-2 text-muted-foreground text-sm">
+              <p className="mt-2 text-muted-foreground text-sm font-normal">
                 Start free with 1 Deal credit. No credit card required.
               </p>
               <div className="mt-6">
                 <Link href="/signup">
-                  <Button size="lg" className="gap-2 font-mono text-xs rounded-full px-8 shadow-md">
+                  <Button size="lg" className="gap-2 text-xs font-semibold rounded-full px-8 shadow-md">
                     <span>Get started free</span>
                     <ArrowRight className="h-4 w-4" />
                   </Button>

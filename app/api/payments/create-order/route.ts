@@ -4,6 +4,9 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { calculateDealFees } from '@/lib/fees';
 import { env, hasRazorpayConfig } from '@/lib/env';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { requireClientDealAccess } from '@/lib/deal-auth';
+
+import { isUuid } from '@/lib/utils';
 
 export async function POST(request: Request) {
   console.log('[PAYMENT_CREATE_START]');
@@ -18,12 +21,15 @@ export async function POST(request: Request) {
 
     const supabase = createAdminClient();
 
-    // Fetch deal
+    // Fetch deal safely
     let query = supabase.from('deals').select('*');
     if (dealId) {
-      query = query.eq('id', dealId);
-    } 
-    if (token) {
+      if (isUuid(dealId)) {
+        query = query.eq('id', dealId);
+      } else {
+        query = query.or(`deal_code.eq.${dealId},token.eq.${dealId}`);
+      }
+    } else if (token) {
       query = query.or(`token.eq.${token},deal_code.eq.${token}`);
     }
     const { data: deal, error: dealError } = await query.maybeSingle();
@@ -36,24 +42,15 @@ export async function POST(request: Request) {
     const authSupabase = await createServerSupabaseClient();
     const { data: { user } } = await authSupabase.auth.getUser();
 
-    // Check client session token from header
-    const clientSessionHeader = request.headers.get('x-client-session-token');
-    const { verifyClientSessionToken } = await import('@/lib/otp');
-    const hasValidClientToken = clientSessionHeader && deal.token
-      ? verifyClientSessionToken(clientSessionHeader, deal.token, deal.client_email)
-      : false;
-
-    const isCreator = user && user.id === deal.creator_id;
-    const isClient = (user && user.email?.toLowerCase() === deal.client_email?.toLowerCase()) || hasValidClientToken;
-
-    console.log(`[PAYMENT_AUTH] dealId=${deal.id} user=${user?.email || 'none'} isCreator=${isCreator} isClient=${isClient} hasClientSessionHeader=${!!clientSessionHeader} hasValidClientToken=${hasValidClientToken}`);
-
+    const isCreator = Boolean(user && user.id === deal.creator_id);
     if (isCreator) {
       console.log('[PAYMENT_AUTH_ERROR] Creator attempted payment');
       return NextResponse.json({ error: 'Creators cannot make payments.' }, { status: 403 });
     }
-    if (!isClient) {
-      console.log('[PAYMENT_AUTH_ERROR] Unauthorized client');
+
+    const clientAuth = await requireClientDealAccess(request, deal.id);
+    if (!clientAuth.authorized) {
+      console.log('[PAYMENT_AUTH_ERROR] Unauthorized client access');
       return NextResponse.json({ error: 'Unauthorized client access.' }, { status: 403 });
     }
 
@@ -63,8 +60,12 @@ export async function POST(request: Request) {
       if (inv) invoice = inv;
     }
 
-    if (!invoice && deal.payment_status === 'paid') {
-      return NextResponse.json({ error: 'Deal is already paid' }, { status: 400 });
+    if (invoice && (invoice.status === 'paid' || Number(invoice.amount_due) <= 0)) {
+      return NextResponse.json({ error: 'Invoice is already paid' }, { status: 400 });
+    }
+
+    if (deal.payment_status === 'paid' || deal.status === 'completed') {
+      return NextResponse.json({ error: 'Deal is already paid and completed' }, { status: 400 });
     }
 
     const amountInCurrency = invoice ? Number(invoice.amount_due) : Number(deal.price);

@@ -161,20 +161,71 @@ const negativeConstraints = [
 ];
 
 export function SecurityArchitectureInteractive() {
-  const [activeNodeId, setActiveNodeId] = useState<string>('otp');
-  const [activeSignalIndex, setActiveSignalIndex] = useState<number>(0);
-  const [autoPlay, setAutoPlay] = useState<boolean>(true);
+  const [userSelectedIndex, setUserSelectedIndex] = useState<number | null>(null);
+  const [animProgress, setAnimProgress] = useState<number>(0);
+  const [reducedMotion, setReducedMotion] = useState<boolean>(false);
 
-  // Continuous signal pulse moving through 01 -> 05
+  const DURATION = 12000; // 12 seconds total one-time sequence (~2.4s per stage)
+
+  // Check for reduced motion preference
   useEffect(() => {
-    if (!autoPlay) return;
-    const interval = setInterval(() => {
-      setActiveSignalIndex((prev) => (prev + 1) % securityNodes.length);
-    }, 2800);
-    return () => clearInterval(interval);
-  }, [autoPlay]);
+    if (typeof window === 'undefined') return;
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setReducedMotion(mediaQuery.matches);
 
-  const activeNode = securityNodes.find((n) => n.id === activeNodeId) || securityNodes[0];
+    const handleChange = () => setReducedMotion(mediaQuery.matches);
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
+  // One-time sequence loop (Stage 01 -> Stage 02 -> Stage 03 -> Stage 04 -> Stage 05 -> STOP)
+  useEffect(() => {
+    if (reducedMotion) return;
+
+    let animationFrameId: number;
+    let startTime: number | null = null;
+
+    const animate = (timestamp: number) => {
+      if (!startTime) startTime = timestamp;
+      const elapsed = timestamp - startTime;
+      const progress = Math.min(1, elapsed / DURATION);
+
+      setAnimProgress(progress);
+
+      if (progress < 1) {
+        animationFrameId = requestAnimationFrame(animate);
+      }
+    };
+
+    animationFrameId = requestAnimationFrame(animate);
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [reducedMotion]);
+
+  // SINGLE AUTHORITATIVE SOURCE OF TRUTH FOR ACTIVE STAGE (0 to 4)
+  const activeStageIndex =
+    userSelectedIndex !== null
+      ? userSelectedIndex
+      : reducedMotion
+      ? 4
+      : Math.min(4, Math.floor(animProgress * 5));
+
+  // Signal position percentage along horizontal track (10% center of dot 1 -> 90% center of dot 5)
+  const signalProgress =
+    userSelectedIndex !== null
+      ? 10 + (userSelectedIndex / 4) * 80
+      : reducedMotion
+      ? 90
+      : 10 + animProgress * 80;
+
+  // DERIVED ACTIVE NODE CONTENT — 100% SYNCHRONIZED WITH ACTIVE STAGE
+  const activeNode = securityNodes[activeStageIndex];
+
+  const handleCardClick = (idx: number) => {
+    setUserSelectedIndex(idx);
+  };
 
   return (
     <div className="space-y-12">
@@ -182,7 +233,7 @@ export function SecurityArchitectureInteractive() {
       <div className="bg-card/85 backdrop-blur-md rounded-2xl border border-border/80 p-6 sm:p-8 shadow-xl">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6 pb-6 border-b border-border/60">
           <div>
-            <div className="inline-flex items-center gap-2 text-xs font-mono font-semibold text-amber-500 uppercase tracking-wider mb-1">
+            <div className="inline-flex items-center gap-2 text-xs font-mono font-semibold text-accent-brand uppercase tracking-wider mb-1">
               <Cpu className="h-3.5 w-3.5" />
               Interactive Security Architecture
             </div>
@@ -190,65 +241,89 @@ export function SecurityArchitectureInteractive() {
               5-Stage Data Protection Pipeline
             </h2>
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-            Continuous Signal Loop: Active Stage 0{activeSignalIndex + 1}
+        </div>
+
+        {/* Continuous Horizontal Signal Track */}
+        <div className="relative w-full mb-6">
+          <div className="h-1.5 w-full bg-border/40 rounded-full overflow-hidden relative">
+            <div className="absolute inset-0 bg-gradient-to-r from-accent-brand/10 via-accent-brand/25 to-accent-brand/10" />
+            {!reducedMotion && (
+              <div
+                className="absolute top-0 bottom-0 rounded-full bg-accent-brand shadow-[0_0_12px_#3B82F6,0_0_24px_#3B82F6] transition-none"
+                style={{
+                  left: `${signalProgress}%`,
+                  width: '48px',
+                  transform: 'translateX(-50%)',
+                  background:
+                    'linear-gradient(90deg, transparent 0%, rgba(59,130,246,0.3) 30%, #3B82F6 100%)',
+                }}
+              />
+            )}
+          </div>
+
+          {/* Node dots positioned over center of each column (10%, 30%, 50%, 70%, 90%) */}
+          <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 flex justify-between px-[10%] pointer-events-none">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                className={cn(
+                  'w-2.5 h-2.5 rounded-full transition-all duration-300',
+                  activeStageIndex === i
+                    ? 'bg-accent-brand ring-4 ring-accent-brand/30 scale-125 shadow-[0_0_12px_#3B82F6]'
+                    : 'bg-muted-foreground/30'
+                )}
+              />
+            ))}
           </div>
         </div>
 
         {/* Pipeline Nodes Grid */}
-        <div
-          className="grid grid-cols-1 sm:grid-cols-5 gap-3 mb-8 relative"
-          onMouseEnter={() => setAutoPlay(false)}
-          onMouseLeave={() => setAutoPlay(true)}
-        >
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-8 relative">
           {securityNodes.map((node, idx) => {
-            const isSelected = node.id === activeNodeId;
-            const isSignalActive = activeSignalIndex === idx;
+            const isActive = activeStageIndex === idx;
             const Icon = node.icon;
 
             return (
               <motion.button
                 key={node.id}
                 type="button"
-                onClick={() => {
-                  setActiveNodeId(node.id);
-                  setActiveSignalIndex(idx);
-                }}
+                onClick={() => handleCardClick(idx)}
                 whileHover={{ y: -2 }}
                 whileTap={{ scale: 0.98 }}
                 className={cn(
-                  'relative flex flex-col items-start p-4 rounded-xl border text-left transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-amber-500',
-                  isSelected
-                    ? 'bg-amber-500/10 border-amber-500/60 shadow-md'
+                  'relative flex flex-col items-start p-4 rounded-xl border text-left transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-accent-brand',
+                  isActive
+                    ? 'bg-accent-brand/15 border-accent-brand/70 shadow-[0_0_20px_rgba(59,130,246,0.2)]'
                     : 'bg-muted/30 border-border/60 hover:bg-muted/60 hover:border-border'
                 )}
               >
-                {/* Continuous Signal Indicator Bar */}
-                {isSignalActive && (
+                {/* Active Stage Indicator Bar */}
+                {isActive && (
                   <motion.div
                     layoutId="signal-bar"
-                    className="absolute -top-1 left-3 right-3 h-0.5 bg-amber-500 rounded-full shadow-[0_0_8px_rgba(245,158,11,0.8)]"
+                    className="absolute -top-1 left-3 right-3 h-0.5 bg-accent-brand rounded-full shadow-[0_0_10px_rgba(59,130,246,0.9)]"
                     transition={{ type: 'spring', stiffness: 300, damping: 30 }}
                   />
                 )}
 
                 <div className="flex items-center justify-between w-full mb-3">
-                  <span className="text-xs font-mono font-bold text-muted-foreground">
+                  <span
+                    className={cn(
+                      'text-xs font-mono font-bold transition-colors',
+                      isActive ? 'text-accent-brand' : 'text-muted-foreground'
+                    )}
+                  >
                     {node.code}
                   </span>
                   <div
                     className={cn(
-                      'p-1.5 rounded-lg transition-colors',
-                      isSelected
-                        ? 'bg-amber-500 text-black'
+                      'p-1.5 rounded-lg transition-all duration-200',
+                      isActive
+                        ? 'bg-accent-brand text-accent-brand-foreground shadow-[0_0_12px_rgba(59,130,246,0.6)]'
                         : 'bg-muted/60 text-muted-foreground'
                     )}
                   >
-                    <Icon className="h-4 w-4" />
+                    <Icon className={cn('h-4 w-4', isActive && 'animate-pulse')} />
                   </div>
                 </div>
 
@@ -273,12 +348,12 @@ export function SecurityArchitectureInteractive() {
           >
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4 pb-4 border-b border-border/50">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-500">
+                <div className="p-2.5 rounded-xl bg-accent-brand/15 border border-accent-brand/30 text-accent-brand">
                   <activeNode.icon className="h-5 w-5" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono text-amber-500 font-bold">
+                    <span className="text-xs font-mono text-accent-brand font-bold">
                       STAGE {activeNode.code}
                     </span>
                     <span className="text-xs font-mono text-muted-foreground">/</span>
@@ -303,7 +378,7 @@ export function SecurityArchitectureInteractive() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <div className="text-xs font-mono font-semibold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-                  <Server className="h-3.5 w-3.5 text-amber-500" />
+                  <Server className="h-3.5 w-3.5 text-accent-brand" />
                   Technical Specifications
                 </div>
                 <div className="space-y-1.5">
@@ -312,7 +387,7 @@ export function SecurityArchitectureInteractive() {
                       key={i}
                       className="flex items-start gap-2 text-xs text-muted-foreground bg-card/60 p-2.5 rounded-lg border border-border/40 font-mono"
                     >
-                      <ChevronRight className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+                      <ChevronRight className="h-3.5 w-3.5 text-accent-brand shrink-0 mt-0.5" />
                       <span>{spec}</span>
                     </div>
                   ))}
@@ -321,7 +396,7 @@ export function SecurityArchitectureInteractive() {
 
               <div className="space-y-2">
                 <div className="text-xs font-mono font-semibold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-                  <Terminal className="h-3.5 w-3.5 text-amber-500" />
+                  <Terminal className="h-3.5 w-3.5 text-accent-brand" />
                   Enforcement Mechanisms
                 </div>
                 <div className="space-y-1.5">
@@ -330,7 +405,7 @@ export function SecurityArchitectureInteractive() {
                       key={i}
                       className="flex items-start gap-2 text-xs text-muted-foreground bg-card/60 p-2.5 rounded-lg border border-border/40 font-mono"
                     >
-                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0 mt-1.5" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-accent-brand shrink-0 mt-1.5" />
                       <span>{mech}</span>
                     </div>
                   ))}

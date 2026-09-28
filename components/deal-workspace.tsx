@@ -32,7 +32,17 @@ import {
   Settings,
   Eye,
   FileText,
+  MoreHorizontal,
+  CheckCircle2,
 } from 'lucide-react';
+import { Breadcrumb } from '@/components/app-shell';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -47,18 +57,21 @@ import { ChatMessageItem } from '@/components/chat-message';
 import { FileCard } from '@/components/file-card';
 import { Timeline } from '@/components/timeline-event';
 import { InvoicePreview } from '@/components/invoices/invoice-preview';
+import { InvoiceForm } from '@/components/invoices/invoice-form';
 import { EmptyState } from '@/components/empty-state';
 import { ScopeMilestones } from '@/components/scope-milestones';
 import { DealCard } from '@/components/deal/deal-card';
 import { formatCurrency } from '@/lib/plans';
 import { createClient } from '@/lib/supabase/client';
 import { hasSupabasePublicConfig } from '@/lib/env';
-import { getDealPublicUrl } from '@/lib/deal-url';
+import { getCreatorUsername, getClientDealUrl, getDealPublicUrl } from '@/lib/deal-url';
 import { useRouter } from 'next/navigation';
 import { cn, serializeDescription, parseDescription } from '@/lib/utils';
 import { uploadQueue, type UploadTask } from '@/lib/upload-queue';
 import { addMessageToStore, addProposalToStore, respondToProposalInStore, permanentlyDeleteDealInStore, closeDealInStore } from '@/lib/app-store';
 import { printWithFilename } from '@/lib/print-utils';
+import { getCanonicalDeliverables } from '@/lib/deals/canonical-deliverables';
+import { CreatorContractPanel } from '@/components/contract/creator-contract-panel';
 import type { Deal, DealMessage, PriceProposal, DealEvent, FileVersion, Deliverable, Milestone, Payment, ChangeRequest } from '@/lib/types';
 
 function getInitials(name: string) {
@@ -81,6 +94,8 @@ interface DealWorkspaceProps {
   payments: Payment[];
   changeRequests: ChangeRequest[];
   invoices?: any[];
+  contract?: any;
+  hasAgreement?: boolean;
 }
 
 export function DealWorkspace({
@@ -98,13 +113,37 @@ export function DealWorkspace({
   payments,
   changeRequests,
   invoices = [],
+  contract: contractProp,
+  hasAgreement: hasAgreementProp,
 }: DealWorkspaceProps) {
   const router = useRouter();
   const [currentDeal, setCurrentDeal] = useState<Deal>(deal);
   const isPaidOrCompleted = currentDeal.paymentStatus === 'paid' || currentDeal.status === 'completed';
 
+  // Authoritative feature-conditional flags
+  const hasAgreement = Boolean(
+    hasAgreementProp ||
+    contractProp ||
+    (currentDeal as any).createAgreement ||
+    events.some((e) => (e.type as string) === 'contract_created' || (e.type as string) === 'contract_sent' || (e.type as string) === 'contract_accepted')
+  );
+  const hasMilestones = Boolean(milestones && milestones.length > 0);
+  const hasInvoice = Boolean(invoices && invoices.length > 0);
+
+  const [activeTab, setActiveTab] = useState('overview');
+
+  // Auto-fallback activeTab if on a removed or disabled tab
+  useEffect(() => {
+    if (activeTab === 'payments' || activeTab === 'payment') {
+      setActiveTab('overview');
+    } else if (activeTab === 'agreement' && !hasAgreement) {
+      setActiveTab('overview');
+    }
+  }, [activeTab, hasAgreement]);
+
   const [localFileVersions, setLocalFileVersions] = useState<FileVersion[]>(fileVersions);
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
+  const [createInvoiceOpen, setCreateInvoiceOpen] = useState(false);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
   const [previewMimeType, setPreviewMimeType] = useState('');
@@ -287,15 +326,151 @@ export function DealWorkspace({
     }
   }
 
-  const [activeTab, setActiveTab] = useState('overview');
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const [closing, setClosing] = useState(false);
   const [closeError, setCloseError] = useState('');
   const [linkCopied, setLinkCopied] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const [sharingPoster, setSharingPoster] = useState(false);
+  const posterRef = useRef<HTMLDivElement>(null);
 
-  const canonicalUrl = getDealPublicUrl(currentDeal.dealCode || currentDeal.token || (currentDeal as any).id);
+  function cloneNodeWithComputedStyles(sourceNode: HTMLElement): HTMLElement {
+    const clone = sourceNode.cloneNode(true) as HTMLElement;
+    const sourceElements = Array.from(sourceNode.querySelectorAll('*'));
+    const cloneElements = Array.from(clone.querySelectorAll('*'));
+
+    const rootComputed = window.getComputedStyle(sourceNode);
+    for (let i = 0; i < rootComputed.length; i++) {
+      const prop = rootComputed[i];
+      try {
+        clone.style.setProperty(prop, rootComputed.getPropertyValue(prop), rootComputed.getPropertyPriority(prop));
+      } catch {
+        // ignore read-only style properties
+      }
+    }
+
+    sourceElements.forEach((sourceEl, index) => {
+      const cloneEl = cloneElements[index] as Element;
+      if (cloneEl && sourceEl instanceof Element) {
+        if (sourceEl.tagName.toLowerCase() === 'svg' && !cloneEl.getAttribute('xmlns')) {
+          cloneEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        }
+
+        const computed = window.getComputedStyle(sourceEl);
+        for (let i = 0; i < computed.length; i++) {
+          const prop = computed[i];
+          try {
+            (cloneEl as HTMLElement).style?.setProperty(prop, computed.getPropertyValue(prop), computed.getPropertyPriority(prop));
+          } catch {
+            // ignore read-only style properties
+          }
+        }
+      }
+    });
+
+    return clone;
+  }
+
+  async function generatePosterFile(element: HTMLElement, dealCode: string): Promise<File | null> {
+    try {
+      const width = element.offsetWidth || 380;
+      const height = element.offsetHeight || 520;
+
+      let cssRules = '';
+      try {
+        const styleSheets = Array.from(document.styleSheets);
+        for (const sheet of styleSheets) {
+          try {
+            const rules = Array.from(sheet.cssRules || []);
+            for (const rule of rules) {
+              cssRules += rule.cssText + '\n';
+            }
+          } catch {
+            // Ignore cross-origin stylesheet security blocks
+          }
+        }
+      } catch (e) {
+        console.warn('Could not extract styleSheets:', e);
+      }
+
+      const clone = cloneNodeWithComputedStyles(element);
+      clone.style.width = `${width}px`;
+      clone.style.height = `${height}px`;
+      clone.style.boxSizing = 'border-box';
+      const htmlString = new XMLSerializer().serializeToString(clone);
+
+      const svgString = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+          <defs>
+            <style>
+              ${cssRules}
+              * { box-sizing: border-box; }
+              body, html { margin: 0; padding: 0; background-color: #0F172A; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+            </style>
+          </defs>
+          <foreignObject width="100%" height="100%">
+            <div xmlns="http://www.w3.org/1999/xhtml" style="background-color: #0F172A; color: #F8FAFC; width: ${width}px; height: ${height}px; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+              ${htmlString}
+            </div>
+          </foreignObject>
+        </svg>
+      `;
+
+      const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(svgBlob);
+      const img = new Image();
+
+      return new Promise<File | null>((resolve) => {
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            const scale = 2; // 2x HiDPI sharp output
+            canvas.width = width * scale;
+            canvas.height = height * scale;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              URL.revokeObjectURL(url);
+              resolve(null);
+              return;
+            }
+            ctx.fillStyle = '#0F172A';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.scale(scale, scale);
+            ctx.drawImage(img, 0, 0);
+            URL.revokeObjectURL(url);
+
+            canvas.toBlob((blob) => {
+              if (!blob) {
+                resolve(null);
+                return;
+              }
+              const cleanCode = (dealCode || 'DLT-DEAL').replace(/[^A-Z0-9]/gi, '').toUpperCase();
+              const filename = `DELT-${cleanCode}.png`;
+              const file = new File([blob], filename, { type: 'image/png' });
+              resolve(file);
+            }, 'image/png');
+          } catch (err) {
+            console.error('Canvas drawImage error:', err);
+            URL.revokeObjectURL(url);
+            resolve(null);
+          }
+        };
+        img.onerror = (err) => {
+          console.error('SVG image load error:', err);
+          URL.revokeObjectURL(url);
+          resolve(null);
+        };
+        img.src = url;
+      });
+    } catch (err) {
+      console.error('Poster capture error:', err);
+      return null;
+    }
+  }
+
+  const creatorUsername = getCreatorUsername({ displayName: creatorName, username: (currentDeal as any).creatorUsername || (currentDeal as any).creator_username });
+  const canonicalUrl = getClientDealUrl(currentDeal.dealCode || currentDeal.token || (currentDeal as any).id, creatorUsername);
   const isClosed = currentDeal.status === 'closed';
 
   const handleShare = async () => {
@@ -350,84 +525,75 @@ export function DealWorkspace({
   return (
     <div>
       {/* Header */}
-      <div className="mb-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-display font-semibold tracking-tight">{currentDeal.title}</h1>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+      <div className="mb-6 space-y-4">
+        <Breadcrumb items={[{ label: 'Deals', href: '/deals' }, { label: currentDeal.title }]} />
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pb-2 border-b border-border/40">
+          <div className="space-y-1">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-2xl font-display font-semibold tracking-tight text-foreground">{currentDeal.title}</h1>
+              <DealStatusBadge status={currentDeal.status} />
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">{formatCurrency(currentDeal.price, currentDeal.currency)}</span>
+              <span>·</span>
               <span>{clientName}</span>
               {clientCompany && <><span>·</span><span>{clientCompany}</span></>}
               <span>·</span>
-              <span>{formatCurrency(currentDeal.price, currentDeal.currency)}</span>
+              <span className="font-mono text-[11px] text-muted-foreground">{currentDeal.dealCode || currentDeal.id}</span>
             </div>
           </div>
+
           <div className="flex items-center gap-2">
-            <DealStatusBadge status={currentDeal.status} />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 text-xs font-medium"
+              onClick={() => setShareOpen(true)}
+            >
+              <Share2 className="h-3.5 w-3.5" />
+              Share
+            </Button>
 
-            <Link href={`/deals/${currentDeal.dealCode || currentDeal.id}/settings`}>
-              <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5">
-                <Settings className="h-3.5 w-3.5" />
-                Settings
-              </Button>
-            </Link>
-          </div>
-        </div>
-
-        {/* Shareable Client Link Banner */}
-        <div className="mt-4 rounded-xl border border-primary/20 bg-primary/[0.03] p-3.5 sm:p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-primary">Deal Code</span>
-                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300">
-                  OTP Protected
-                </span>
-              </div>
-              <p className="text-sm font-semibold truncate font-mono select-all text-foreground">
-                {currentDeal.dealCode || currentDeal.id}
-              </p>
-              <p className="text-[10px] text-muted-foreground mt-1">
-                Client Portal: Copy secure link below to invite client
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 gap-1.5 text-xs font-medium"
-                onClick={() => {
-                  navigator.clipboard.writeText(canonicalUrl);
-                  setLinkCopied(true);
-                  setTimeout(() => setLinkCopied(false), 2000);
-                }}
-              >
-                <Copy className="h-3.5 w-3.5" />
-                {linkCopied ? 'Link Copied!' : 'Copy Link'}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 gap-1.5 text-xs font-medium"
-                onClick={() => setShareOpen(true)}
-              >
-                <Share2 className="h-3.5 w-3.5" />
-                Share
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                className="h-8 gap-1.5 text-xs font-medium"
-                onClick={() => window.open(canonicalUrl, '_blank')}
-              >
-                <Eye className="h-3.5 w-3.5" />
-                Preview Client View
-              </Button>
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                  onClick={() => {
+                    navigator.clipboard.writeText(canonicalUrl);
+                    setLinkCopied(true);
+                    setTimeout(() => setLinkCopied(false), 2000);
+                  }}
+                >
+                  <Copy className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                  {linkCopied ? 'Link Copied!' : 'Copy Deal Link'}
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href={`/deals/${currentDeal.dealCode || currentDeal.id}/settings`}>
+                    <Settings className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                    Deal Settings
+                  </Link>
+                </DropdownMenuItem>
+                {!isClosed && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setCloseDialogOpen(true)} className="text-amber-600 dark:text-amber-400">
+                      <Lock className="h-3.5 w-3.5 mr-2" />
+                      Close Deal
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
         {isClosed && (
-          <div className="mt-3 flex items-center gap-2 rounded-lg bg-zinc-100 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 p-3 text-xs text-zinc-700 dark:text-zinc-300">
+          <div className="flex items-center gap-2 rounded-lg bg-zinc-100 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 p-3 text-xs text-zinc-700 dark:text-zinc-300">
             <Check className="h-4 w-4 text-zinc-500 shrink-0" />
             <span>This Deal is closed.</span>
           </div>
@@ -439,24 +605,46 @@ export function DealWorkspace({
         <div className="overflow-x-auto scrollbar-thin -mx-1 px-1">
           <TabsList className="w-auto">
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            {hasAgreement && <TabsTrigger value="agreement">Agreement</TabsTrigger>}
             <TabsTrigger value="chat">Chat</TabsTrigger>
             <TabsTrigger value="files">Files</TabsTrigger>
-            <TabsTrigger value="payments">Payments</TabsTrigger>
-            <TabsTrigger value="activity">Activity</TabsTrigger>
           </TabsList>
         </div>
 
         <TabsContent value="overview" className="mt-4">
-          <OverviewTab deal={currentDeal} deliverables={deliverables} milestones={milestones} events={events} clientName={clientName} creatorName={creatorName} invoices={invoices} setInvoiceModalOpen={setInvoiceModalOpen} />
+          <OverviewTab
+            deal={currentDeal}
+            deliverables={deliverables}
+            milestones={milestones}
+            events={events}
+            clientName={clientName}
+            creatorName={creatorName}
+            invoices={invoices}
+            hasAgreement={hasAgreement}
+            hasMilestones={hasMilestones}
+            hasInvoice={hasInvoice}
+            changeRequests={changeRequests}
+            setInvoiceModalOpen={setInvoiceModalOpen}
+            onCreateInvoice={() => setCreateInvoiceOpen(true)}
+            onNavigateTab={setActiveTab}
+          />
         </TabsContent>
+        {hasAgreement && (
+          <TabsContent value="agreement" className="mt-4">
+            <CreatorContractPanel
+              dealCode={currentDeal.dealCode || currentDeal.id}
+              dealTitle={currentDeal.title}
+              creatorName={creatorName}
+              clientName={clientName}
+              clientEmail={clientEmail}
+            />
+          </TabsContent>
+        )}
         <TabsContent value="chat" className="mt-4">
           <ChatTab deal={currentDeal} messages={messages} proposals={proposals} creatorName={creatorName} isClosed={isClosed} />
         </TabsContent>
         <TabsContent value="files" className="mt-4">
           <FilesTab deal={currentDeal} deliverables={deliverables} fileVersions={localFileVersions} changeRequests={changeRequests} isClosed={isClosed} handleViewPreview={handleViewPreview} handleRetryPreview={handleRetryPreview} previewLoadingFileId={previewLoadingFileId} />
-        </TabsContent>
-        <TabsContent value="payments" className="mt-4">
-          <PaymentsTab deal={currentDeal} payments={payments} invoices={invoices} setInvoiceModalOpen={setInvoiceModalOpen} creator={{ name: creatorName }} client={{ name: clientName }} />
         </TabsContent>
         <TabsContent value="activity" className="mt-4">
           <ActivityTab events={events} />
@@ -470,14 +658,17 @@ export function DealWorkspace({
             <DialogTitle>Share Deal</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <DealCard
-              deal={currentDeal}
-              creatorName={creatorName}
-              clientName={clientName}
-              deliverablesCount={deliverables.length}
-              milestones={milestones}
-              variant="share"
-            />
+            <div ref={posterRef}>
+              <DealCard
+                deal={currentDeal}
+                creatorUsername={creatorUsername}
+                creatorName={creatorName}
+                clientName={clientName}
+                deliverablesCount={deliverables.length}
+                milestones={milestones}
+                variant="share"
+              />
+            </div>
             <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 p-2.5">
               <LinkIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
               <span className="flex-1 truncate select-all font-mono text-xs">{canonicalUrl}</span>
@@ -501,17 +692,79 @@ export function DealWorkspace({
             <div className="grid grid-cols-2 gap-2">
               <Button
                 variant="outline"
-                className="w-full"
+                className="w-full gap-1.5"
                 onClick={() => {
                   navigator.clipboard.writeText(canonicalUrl);
                   setShareCopied(true);
                   setTimeout(() => setShareCopied(false), 2000);
                 }}
               >
+                <Copy className="h-3.5 w-3.5" />
                 {shareCopied ? 'Link Copied!' : 'Copy Link'}
               </Button>
-              <Button className="w-full" onClick={() => window.open(canonicalUrl, '_blank')}>
-                Open Client View
+              <Button
+                className="w-full gap-1.5"
+                disabled={sharingPoster}
+                onClick={async () => {
+                  setSharingPoster(true);
+                  try {
+                    const shareTitle = `DELT — ${currentDeal.title}`;
+                    const shareText = `Private deal: ${currentDeal.title}`;
+                    const shareUrl = canonicalUrl;
+                    const dealCode = currentDeal.dealCode || currentDeal.id;
+
+                    let posterFile: File | null = null;
+                    if (posterRef.current) {
+                      posterFile = await generatePosterFile(posterRef.current, dealCode);
+                    }
+
+                    if (typeof navigator !== 'undefined' && navigator.share) {
+                      // 1. Try native file + URL sharing if supported
+                      if (posterFile && navigator.canShare) {
+                        const fileShareData = { title: shareTitle, text: shareText, url: shareUrl, files: [posterFile] };
+                        if (navigator.canShare(fileShareData)) {
+                          try {
+                            await navigator.share(fileShareData);
+                            return;
+                          } catch (err: any) {
+                            if (err.name === 'AbortError') return;
+                          }
+                        }
+                      }
+
+                      // 2. Fallback to Web Share with URL only
+                      const textShareData = { title: shareTitle, text: shareText, url: shareUrl };
+                      if (navigator.canShare ? navigator.canShare(textShareData) : true) {
+                        try {
+                          await navigator.share(textShareData);
+                          return;
+                        } catch (err: any) {
+                          if (err.name === 'AbortError') return;
+                        }
+                      }
+                    }
+
+                    // 3. Desktop fallback: copy link and download poster image if available
+                    if (posterFile) {
+                      const a = document.createElement('a');
+                      const fileUrl = URL.createObjectURL(posterFile);
+                      a.href = fileUrl;
+                      a.download = posterFile.name;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                      setTimeout(() => URL.revokeObjectURL(fileUrl), 1000);
+                    }
+                    await navigator.clipboard.writeText(shareUrl);
+                    setShareCopied(true);
+                    setTimeout(() => setShareCopied(false), 2000);
+                  } finally {
+                    setSharingPoster(false);
+                  }
+                }}
+              >
+                <Share2 className="h-3.5 w-3.5" />
+                {sharingPoster ? 'Sharing...' : 'Share'}
               </Button>
             </div>
           </div>
@@ -564,14 +817,30 @@ export function DealWorkspace({
         </DialogContent>
       </Dialog>
 
+      {/* Create / Edit Invoice Modal */}
+      <Dialog open={createInvoiceOpen} onOpenChange={setCreateInvoiceOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0">
+          <div className="p-4 sm:p-6">
+            <InvoiceForm
+              deal={currentDeal}
+              invoice={invoices.find((i) => i.status === 'draft') || invoices[0]}
+              onSuccess={() => {
+                setCreateInvoiceOpen(false);
+                router.refresh();
+              }}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Invoice Modal */}
       <Dialog open={invoiceModalOpen} onOpenChange={setInvoiceModalOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0">
           <div className="sticky top-0 z-10 flex items-center justify-between bg-background border-b px-4 py-3">
-            <h2 className="text-lg font-semibold">Receipt</h2>
+            <h2 className="text-lg font-semibold">Invoice Document</h2>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={() => {
-                const activeInvoice = invoices?.find(i => i.status !== 'draft');
+                const activeInvoice = invoices?.find(i => i.status !== 'draft') || invoices[0];
                 if (!activeInvoice) return;
                 const code = activeInvoice.invoice_code || activeInvoice.invoice_number || 'UNKNOWN';
                 printWithFilename(`DELT-${code}-INVOICE`);
@@ -587,7 +856,7 @@ export function DealWorkspace({
           <div className="p-4 sm:p-6 pb-12">
             {invoices.length > 0 && (
               <InvoicePreview
-                invoice={invoices.find(i => i.status !== 'draft')}
+                invoice={invoices.find(i => i.status !== 'draft') || invoices[0]}
                 deal={currentDeal}
                 client={{ name: clientName, email: clientEmail }}
                 creator={{ name: creatorName }}
@@ -601,7 +870,7 @@ export function DealWorkspace({
       <div className="hidden print:block invoice-document">
         {invoices.length > 0 && (
           <InvoicePreview
-            invoice={invoices.find(i => i.status !== 'draft')}
+            invoice={invoices.find(i => i.status !== 'draft') || invoices[0]}
             deal={currentDeal}
             client={{ name: clientName, email: clientEmail }}
             creator={{ name: creatorName }}
@@ -613,8 +882,286 @@ export function DealWorkspace({
 }
 
 // ---------------------------------------------------------------------------
+// Invoice Card Component
+// ---------------------------------------------------------------------------
+
+function InvoiceCard({
+  deal,
+  invoices = [],
+  setInvoiceModalOpen,
+  onCreateInvoice,
+}: {
+  deal: Deal;
+  invoices?: any[];
+  setInvoiceModalOpen?: (open: boolean) => void;
+  onCreateInvoice?: () => void;
+}) {
+  const router = useRouter();
+  const [loadingAction, setLoadingAction] = useState<string | null>(null);
+
+  const activeInvoice = invoices.length > 0 ? invoices[0] : null;
+
+  async function handleIssue(id: string) {
+    setLoadingAction('issue');
+    try {
+      const res = await fetch(`/api/invoices/${id}/send`, { method: 'POST' });
+      const data = await res.json();
+      if (!data.success) alert(data.error || 'Failed to issue invoice');
+      router.refresh();
+    } catch (e: any) {
+      alert(e.message || 'Error issuing invoice');
+    } finally {
+      setLoadingAction(null);
+    }
+  }
+
+  async function handleCancel(id: string) {
+    if (!confirm('Are you sure you want to cancel this invoice?')) return;
+    setLoadingAction('cancel');
+    try {
+      const res = await fetch(`/api/invoices/${id}/cancel`, { method: 'POST' });
+      const data = await res.json();
+      if (!data.success) alert(data.error || 'Failed to cancel invoice');
+      router.refresh();
+    } catch (e: any) {
+      alert(e.message || 'Error cancelling invoice');
+    } finally {
+      setLoadingAction(null);
+    }
+  }
+
+  if (!activeInvoice) {
+    return (
+      <div className="bg-card rounded-xl border border-border p-4 sm:p-6 mb-6">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-base font-semibold">Invoicing</h3>
+          <FileText className="h-4 w-4 text-muted-foreground" />
+        </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          Create an official itemized invoice for this deal with custom line items, tax, and discount.
+        </p>
+        <Button variant="outline" className="w-full text-xs h-9 gap-1.5" onClick={onCreateInvoice}>
+          <Plus className="h-3.5 w-3.5" />
+          Create Invoice
+        </Button>
+      </div>
+    );
+  }
+
+  const isDraft = activeInvoice.status === 'draft';
+  const isPaid = activeInvoice.status === 'paid';
+  const isCancelled = activeInvoice.status === 'cancelled';
+  const statusColor = isPaid
+    ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-400'
+    : isDraft
+    ? 'text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-400'
+    : isCancelled
+    ? 'text-destructive bg-destructive/10'
+    : 'text-blue-600 bg-blue-50 dark:bg-blue-500/10 dark:text-blue-400';
+
+  return (
+    <div className="bg-card rounded-xl border border-primary/20 bg-primary/5 p-4 sm:p-6 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-base font-semibold">Invoice</h3>
+        <span className="text-xs font-mono font-normal text-muted-foreground bg-background px-2 py-0.5 rounded-md border border-border">
+          {activeInvoice.invoice_number}
+        </span>
+      </div>
+      <div className="space-y-4">
+        <div>
+          <p className="text-xs text-muted-foreground mb-0.5">{isPaid ? 'Total Amount' : 'Amount Due'}</p>
+          <p className="text-2xl font-semibold tracking-tight">{formatCurrency(activeInvoice.total_amount, activeInvoice.currency)}</p>
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">Status:</span>
+            <span className={`inline-flex items-center gap-1 font-medium px-2 py-0.5 rounded-md capitalize ${statusColor}`}>
+              {activeInvoice.status}
+            </span>
+          </div>
+          {activeInvoice.due_date && !isPaid && (
+            <span className="text-muted-foreground">
+              Due: {new Date(activeInvoice.due_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+            </span>
+          )}
+        </div>
+        {isPaid && activeInvoice.paid_at && (
+          <p className="text-xs text-muted-foreground">
+            Paid on: {new Date(activeInvoice.paid_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+          </p>
+        )}
+
+        <div className="pt-3 border-t border-primary/10 grid grid-cols-2 gap-2">
+          {isDraft ? (
+            <>
+              <Button variant="outline" size="sm" className="text-xs h-8 bg-background" onClick={onCreateInvoice}>
+                Edit Draft
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                className="text-xs h-8"
+                onClick={() => handleIssue(activeInvoice.id)}
+                disabled={loadingAction === 'issue'}
+              >
+                {loadingAction === 'issue' ? 'Issuing...' : 'Issue Invoice'}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" size="sm" className="text-xs h-8 bg-background" onClick={() => setInvoiceModalOpen?.(true)}>
+                <ExternalLink className="h-3 w-3 mr-1.5" />
+                View
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                className="text-xs h-8"
+                onClick={() => {
+                  const code = activeInvoice.invoice_code || activeInvoice.invoice_number || 'UNKNOWN';
+                  printWithFilename(`DELT-${code}-INVOICE`);
+                }}
+              >
+                <Download className="h-3 w-3 mr-1.5" />
+                Download
+              </Button>
+            </>
+          )}
+        </div>
+
+        {!isPaid && !isCancelled && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full text-xs text-muted-foreground hover:text-destructive h-7 mt-1"
+            onClick={() => handleCancel(activeInvoice.id)}
+            disabled={loadingAction === 'cancel'}
+          >
+            Cancel Invoice
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Overview Tab
 // ---------------------------------------------------------------------------
+
+function NeedsAttentionCard({
+  deal,
+  deliverables,
+  changeRequests,
+  invoices,
+  hasAgreement,
+  hasMilestones,
+  hasInvoice,
+  onNavigateTab,
+}: {
+  deal: Deal;
+  deliverables: Deliverable[];
+  changeRequests: ChangeRequest[];
+  invoices?: any[];
+  hasAgreement: boolean;
+  hasMilestones: boolean;
+  hasInvoice: boolean;
+  onNavigateTab: (tab: string) => void;
+}) {
+  const pendingRevisions = changeRequests.filter((cr) => cr.status === 'open');
+  const pendingReviews = deal.previewEnabled ? deliverables.filter((d) => d.status === 'uploaded') : [];
+  const isPaymentPending = deal.status === 'payment_pending' || (deal.paymentStatus !== 'paid' && deal.paymentStatus !== 'none');
+  const unpaidInvoice = hasInvoice ? invoices?.find((i) => i.status === 'sent' || i.status === 'overdue') : null;
+
+  const attentionItems: Array<{
+    id: string;
+    title: string;
+    subtitle: string;
+    actionText: string;
+    onClick: () => void;
+  }> = [];
+
+  if (pendingRevisions.length > 0) {
+    pendingRevisions.forEach((cr) => {
+      attentionItems.push({
+        id: `rev-${cr.id}`,
+        title: 'Client requested changes',
+        subtitle: cr.description || cr.title || 'Revision requested on deliverable',
+        actionText: 'Open Files →',
+        onClick: () => onNavigateTab('files'),
+      });
+    });
+  }
+
+  if (pendingReviews.length > 0) {
+    pendingReviews.forEach((del) => {
+      attentionItems.push({
+        id: `del-${del.id}`,
+        title: 'Deliverable awaiting client review',
+        subtitle: del.name,
+        actionText: 'Open Files →',
+        onClick: () => onNavigateTab('files'),
+      });
+    });
+  }
+
+  if (hasInvoice && unpaidInvoice) {
+    attentionItems.push({
+      id: `inv-${unpaidInvoice.id}`,
+      title: 'Invoice payment pending',
+      subtitle: `${unpaidInvoice.number || unpaidInvoice.invoice_number || 'Invoice'} · ${formatCurrency(unpaidInvoice.amount || unpaidInvoice.total_amount || deal.price, deal.currency)}`,
+      actionText: 'View Details →',
+      onClick: () => onNavigateTab('overview'),
+    });
+  } else if (isPaymentPending && deliverables.some((d) => d.status === 'approved')) {
+    attentionItems.push({
+      id: 'pay-pending',
+      title: 'Deliverables approved · Payment pending',
+      subtitle: `Total amount: ${formatCurrency(deal.price, deal.currency)}`,
+      actionText: 'View Details →',
+      onClick: () => onNavigateTab('overview'),
+    });
+  }
+
+  if (attentionItems.length === 0) {
+    return (
+      <div className="flex items-center gap-3 p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 text-xs">
+        <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
+        <div>
+          <p className="font-semibold text-foreground text-sm">Everything is up to date</p>
+          <p className="text-muted-foreground">Nothing needs your attention right now.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Card className="border-amber-500/20 bg-amber-500/5 dark:bg-amber-500/10">
+      <CardHeader className="py-3 px-4 flex flex-row items-center justify-between border-b border-amber-500/10">
+        <div className="flex items-center gap-2">
+          <AlertCircle className="h-4 w-4 text-amber-500 shrink-0" />
+          <CardTitle className="text-xs font-semibold uppercase tracking-wider text-amber-500">Needs your attention</CardTitle>
+        </div>
+        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-500">
+          {attentionItems.length} {attentionItems.length === 1 ? 'item' : 'items'}
+        </span>
+      </CardHeader>
+      <CardContent className="p-4 space-y-3">
+        {attentionItems.map((item) => (
+          <div key={item.id} className="flex items-center justify-between gap-4 p-3 rounded-lg bg-card/80 border border-border/40">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">{item.title}</p>
+              <p className="text-xs text-muted-foreground truncate">{item.subtitle}</p>
+            </div>
+            <Button size="sm" variant="outline" className="shrink-0 text-xs h-8" onClick={item.onClick}>
+              {item.actionText}
+            </Button>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
 
 function OverviewTab({
   deal,
@@ -624,7 +1171,13 @@ function OverviewTab({
   clientName,
   creatorName,
   invoices,
+  hasAgreement,
+  hasMilestones,
+  hasInvoice,
+  changeRequests = [],
   setInvoiceModalOpen,
+  onCreateInvoice,
+  onNavigateTab,
 }: {
   deal: Deal;
   deliverables: Deliverable[];
@@ -633,165 +1186,88 @@ function OverviewTab({
   clientName: string;
   creatorName: string;
   invoices?: any[];
+  hasAgreement: boolean;
+  hasMilestones: boolean;
+  hasInvoice: boolean;
+  changeRequests?: ChangeRequest[];
   setInvoiceModalOpen?: (open: boolean) => void;
+  onCreateInvoice?: () => void;
+  onNavigateTab: (tab: string) => void;
 }) {
-  return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
-      <div className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Project Details</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <div>
-                <p className="text-xs text-muted-foreground mb-0.5">Price</p>
-                <p className="text-sm font-semibold">{formatCurrency(deal.price, deal.currency)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground mb-0.5">Payment</p>
-                <PaymentStatusBadge status={deal.paymentStatus} />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground mb-0.5">Deadline</p>
-                <p className="text-sm font-semibold">
-                  {deal.deadline ? new Date(deal.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'Flexible'}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground mb-0.5">Status</p>
-                <p className="text-sm font-semibold capitalize">{deal.status.replace('_', ' ')}</p>
-              </div>
-            </div>
+  const activeInvoice = invoices?.find((i) => i.status !== 'draft');
 
-            {deal.description && (
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Description</p>
-                <p className="text-sm leading-relaxed">{deal.description}</p>
+  return (
+    <div className="grid gap-6 lg:grid-cols-3">
+      <div className="lg:col-span-2 space-y-6">
+        <NeedsAttentionCard
+          deal={deal}
+          deliverables={deliverables}
+          changeRequests={changeRequests}
+          invoices={invoices}
+          hasAgreement={hasAgreement}
+          hasMilestones={hasMilestones}
+          hasInvoice={hasInvoice}
+          onNavigateTab={onNavigateTab}
+        />
+
+        <ScopeMilestones 
+          deal={deal} 
+          milestones={milestones} 
+          isCreator={true} 
+          showScope={true}
+          showMilestones={hasMilestones}
+        />
+      </div>
+
+      <div className="space-y-6">
+        {/* Compact Payment & Client Summary */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold">Payment & Client</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-xs">
+            <div className="flex justify-between items-center pb-2 border-b border-border/40">
+              <span className="text-muted-foreground">Deal Amount</span>
+              <span className="font-semibold text-sm text-foreground">{formatCurrency(deal.price, deal.currency)}</span>
+            </div>
+            <div className="flex justify-between items-center pb-2 border-b border-border/40">
+              <span className="text-muted-foreground">Payment Status</span>
+              <PaymentStatusBadge status={deal.paymentStatus} />
+            </div>
+            <div className="flex justify-between items-center pb-2 border-b border-border/40">
+              <span className="text-muted-foreground">Client</span>
+              <span className="font-medium text-foreground">{clientName}</span>
+            </div>
+            {hasInvoice && (
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Invoice</span>
+                {activeInvoice ? (
+                  <Button variant="link" className="p-0 h-auto text-xs font-semibold text-primary" onClick={() => setInvoiceModalOpen?.(true)}>
+                    {activeInvoice.number || activeInvoice.invoice_number || 'View Invoice'} →
+                  </Button>
+                ) : (
+                  <Button variant="link" className="p-0 h-auto text-xs text-muted-foreground hover:text-foreground" onClick={onCreateInvoice}>
+                    + Create Invoice
+                  </Button>
+                )}
               </div>
             )}
           </CardContent>
         </Card>
 
-        {deal.projectStructure !== 'none' && (
-          <ScopeMilestones 
-            deal={deal} 
-            milestones={milestones} 
-            isCreator={true} 
-            showScope={deal.projectStructure === 'scope' || deal.projectStructure === 'scope_and_milestones'}
-            showMilestones={deal.projectStructure === 'milestones' || deal.projectStructure === 'scope_and_milestones'}
-          />
-        )}
-
-        {deliverables.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Deliverables</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {deliverables.map((del) => (
-                <div key={del.id} className="flex items-center justify-between rounded-lg border border-border p-3">
-                  <div>
-                    <p className="text-sm font-medium">{del.name}</p>
-                    {del.description && <p className="text-xs text-muted-foreground mt-0.5">{del.description}</p>}
-                  </div>
-                  <DeliverableStatusBadge status={deal.paymentStatus === 'paid' || deal.status === 'completed' ? 'approved' : del.status} />
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        )}
-      </div>
-
-      <div className="space-y-6">
-        <div className="lg:sticky lg:top-6 lg:self-start">
-          <DealCard
-            deal={deal}
-            creatorName={creatorName}
-          clientName={clientName}
-          deliverablesCount={deliverables.length}
-          milestones={milestones}
-            variant="workspace"
-          />
-        </div>
-        {(() => {
-          const activeInvoice = invoices?.find(i => i.status !== 'draft');
-          if (!activeInvoice) return null;
-          const isInvoicePaid = activeInvoice.status === 'paid';
-          return (
-            <div className="bg-card rounded-xl border border-primary/20 bg-primary/5 p-4 sm:p-6 mb-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-base font-semibold">Invoice</h3>
-                <span className="text-xs font-mono font-normal text-muted-foreground bg-background px-2 py-0.5 rounded-md border border-border">
-                  {activeInvoice.invoice_number}
-                </span>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <p className="text-xs text-muted-foreground mb-0.5">{isInvoicePaid ? 'Amount' : 'Amount due'}</p>
-                  <p className="text-2xl font-semibold tracking-tight">{formatCurrency(activeInvoice.total_amount, activeInvoice.currency)}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">Status:</span>
-                  <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-md">
-                    <Check className="h-3 w-3" /> Paid
-                  </span>
-                </div>
-                {isInvoicePaid && activeInvoice.paid_at && (
-                  <p className="text-xs text-muted-foreground">
-                    Paid on: {new Date(activeInvoice.paid_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                  </p>
-                )}
-                <div className="pt-3 border-t border-primary/10 grid grid-cols-2 gap-2">
-                  <Button variant="outline" className="w-full text-xs h-8 bg-background" onClick={() => setInvoiceModalOpen?.(true)}>
-                    <ExternalLink className="h-3 w-3 mr-1.5" />
-                    View
-                  </Button>
-                  <Button variant="default" className="w-full text-xs h-8" onClick={() => {
-                    const activeInvoice = invoices?.find(i => i.status !== 'draft');
-                    if (!activeInvoice) return;
-                    const code = activeInvoice.invoice_code || activeInvoice.invoice_number || 'UNKNOWN';
-                    printWithFilename(`DELT-${code}-INVOICE`);
-                  }}>
-                    <Download className="h-3 w-3 mr-1.5" />
-                    Download
-                  </Button>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-
+        {/* Compact Recent Activity */}
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Client Information</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-3 mb-4">
-              <Avatar className="h-10 w-10">
-                <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">{getInitials(clientName)}</AvatarFallback>
-              </Avatar>
-              <div>
-                <p className="text-sm font-medium">{clientName}</p>
-                <p className="text-xs text-muted-foreground">{(deal as any).client_email || (deal as any).clientEmail || ''}</p>
-              </div>
-            </div>
-            <div className="rounded-lg bg-muted/40 p-3 space-y-1 text-xs">
-              <p className="font-medium text-foreground">Private Workspace Access</p>
-              <p className="text-muted-foreground leading-relaxed">
-                Client accesses this deal via private token link with email OTP verification.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Recent Activity</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between pb-3">
+            <CardTitle className="text-sm font-semibold">Recent Activity</CardTitle>
+            {events.length > 4 && (
+              <Button variant="ghost" size="sm" className="h-6 text-[11px] text-muted-foreground hover:text-foreground p-0" onClick={() => onNavigateTab('activity')}>
+                View all →
+              </Button>
+            )}
           </CardHeader>
           <CardContent>
             {events.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No events recorded yet.</p>
+              <p className="text-xs text-muted-foreground py-2">No activity recorded yet.</p>
             ) : (
               <Timeline events={events.slice(0, 4)} />
             )}
@@ -1348,6 +1824,9 @@ function FilesTab({
 
   useEffect(() => {
     let prevCompletedCount = 0;
+    // Auto-start queued background uploads when the Deal Workspace opens
+    uploadQueue.startPendingUploadsForDeal(deal.id);
+
     return uploadQueue.subscribe((tasks) => {
       const dealTasks = tasks.filter((t) => t.dealId === deal.id);
       setActiveTasks(dealTasks);
@@ -1363,8 +1842,8 @@ function FilesTab({
   const runningTasks = activeTasks;
 
   useEffect(() => {
-    setLocalDeliverables(deliverables.filter(d => !d.name.startsWith('[DELETED]')));
-  }, [deliverables]);
+    setLocalDeliverables(getCanonicalDeliverables(deal, deliverables, fileVersions));
+  }, [deal, deliverables, fileVersions]);
 
   // Sync preview status from database fileVersions to uploadQueue tasks
   useEffect(() => {
@@ -1390,7 +1869,7 @@ function FilesTab({
 
     try {
       const previewEnabled = deal.previewEnabled;
-      const deliverableId = selectedDeliverable || deliverables[0]?.id || 'del-1';
+      const deliverableId = selectedDeliverable || deliverables[0]?.id || '';
 
       uploadQueue.addUploads(
         deal.id,
@@ -1520,13 +1999,27 @@ function FilesTab({
                   ) : null}
 
                   {task.status === 'failed' && (
-                    <button
-                      type="button"
-                      onClick={() => uploadQueue.removeTask(task.id)}
-                      className="absolute top-2 right-2 text-muted-foreground hover:text-foreground"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
+                    <div className="flex items-center gap-2 mt-2 pt-1.5 border-t border-destructive/20">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => uploadQueue.retryTask(task.id)}
+                        className="h-6 px-2 text-[10px] gap-1 text-destructive border-destructive/30 hover:bg-destructive/10"
+                      >
+                        <RefreshCw className="h-3 w-3" />
+                        <span>Retry Upload</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => uploadQueue.removeTask(task.id)}
+                        className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                      >
+                        <span>Dismiss</span>
+                      </Button>
+                    </div>
                   )}
                 </div>
               ))}
@@ -1754,131 +2247,7 @@ function FilesTab({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Payments Tab
-// ---------------------------------------------------------------------------
 
-function PaymentsTab({
-  deal,
-  payments,
-  invoices,
-  creator,
-  client,
-  setInvoiceModalOpen,
-}: {
-  deal: Deal;
-  payments: Payment[];
-  invoices?: any[];
-  creator?: any;
-  client?: any;
-  setInvoiceModalOpen?: (open: boolean) => void;
-}) {
-  const isPaid = deal.paymentStatus === 'paid';
-  const activeInvoice = invoices?.find(i => i.status !== 'draft');
-
-  return (
-    <div className="grid gap-6 lg:grid-cols-3">
-      <div className="lg:col-span-2 space-y-4">
-        {isPaid && activeInvoice ? (
-          <div className="bg-card rounded-xl border border-primary/20 bg-primary/5 p-4 sm:p-6 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-semibold">Invoice</h3>
-              <span className="text-xs font-mono font-normal text-muted-foreground bg-background px-2 py-0.5 rounded-md border border-border">
-                {activeInvoice.invoice_number}
-              </span>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <p className="text-xs text-muted-foreground mb-0.5">{activeInvoice.status === 'paid' ? 'Amount' : 'Amount due'}</p>
-                <p className="text-2xl font-semibold tracking-tight">{formatCurrency(activeInvoice.total_amount, activeInvoice.currency)}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Status:</span>
-                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-md">
-                  <Check className="h-3 w-3" /> Paid
-                </span>
-              </div>
-              {activeInvoice.status === 'paid' && activeInvoice.paid_at && (
-                <p className="text-xs text-muted-foreground">
-                  Paid on: {new Date(activeInvoice.paid_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                </p>
-              )}
-              <div className="pt-3 border-t border-primary/10 grid grid-cols-2 gap-2">
-                <Button variant="outline" className="w-full text-xs h-8 bg-background" onClick={() => setInvoiceModalOpen?.(true)}>
-                  <ExternalLink className="h-3 w-3 mr-1.5" />
-                  View
-                </Button>
-                <Button variant="default" className="w-full text-xs h-8" onClick={() => {
-                  const activeInvoice = invoices?.find(i => i.status !== 'draft');
-                  if (!activeInvoice) return;
-                  const code = activeInvoice.invoice_code || activeInvoice.invoice_number || 'UNKNOWN';
-                  printWithFilename(`DELT-${code}-INVOICE`);
-                }}>
-                  <Download className="h-3 w-3 mr-1.5" />
-                  Download
-                </Button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Payment Summary</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between p-4 rounded-lg bg-muted/30 border border-border">
-                <div>
-                  <p className="text-xs text-muted-foreground">Total Deal Amount</p>
-                  <p className="text-2xl font-display font-semibold mt-0.5">{formatCurrency(deal.price, deal.currency)}</p>
-                </div>
-                <PaymentStatusBadge status={deal.paymentStatus} />
-              </div>
-
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between py-2 border-b border-border">
-                  <span className="text-muted-foreground">Payment Status</span>
-                  <span className="font-medium capitalize">{deal.paymentStatus}</span>
-                </div>
-                <div className="flex justify-between py-2 border-b border-border">
-                  <span className="text-muted-foreground">Currency</span>
-                  <span className="font-medium">{deal.currency}</span>
-                </div>
-                <div className="flex justify-between py-2">
-                  <span className="text-muted-foreground">Deliverables Access</span>
-                  <span className="font-medium">
-                    {isPaid ? 'Unlocked (All files downloadable)' : 'Locked until payment confirmed'}
-                  </span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-
-      <div>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Payment Gateway</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <CreditCard className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-sm font-medium">Razorpay Gateway</p>
-                <p className="text-xs text-muted-foreground">Cards, UPI, Netbanking & Wallets</p>
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed pt-2 border-t border-border">
-              When your client completes payment in the portal, files unlock immediately and the transaction is recorded.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Activity Tab

@@ -1,12 +1,19 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import { Inter, JetBrains_Mono } from 'next/font/google';
+import { Inter, DM_Sans, JetBrains_Mono } from 'next/font/google';
 import { ThemeProvider } from '@/components/theme-provider';
 
 const sans = Inter({
   subsets: ['latin'],
   variable: '--font-sans',
-  weight: ['400', '500', '600'],
+  weight: ['400', '500', '600', '700'],
+  display: 'swap',
+});
+
+const display = DM_Sans({
+  subsets: ['latin'],
+  variable: '--font-display',
+  weight: ['400', '500', '600', '700'],
   display: 'swap',
 });
 
@@ -87,7 +94,7 @@ export default function RootLayout({
         />
       </head>
       <body
-        className={`${sans.variable} ${mono.variable} font-sans antialiased`}
+        className={`${sans.variable} ${display.variable} ${mono.variable} font-sans antialiased`}
       >
         <ThemeProvider
           attribute="class"

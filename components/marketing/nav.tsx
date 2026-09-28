@@ -9,7 +9,7 @@ import { useTheme } from 'next-themes';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { createClient } from '@/lib/supabase/client';
+import { useUser } from '@/hooks/use-user';
 
 const navLinks = [
   { href: '/how-it-works', label: 'How it works' },
@@ -21,11 +21,13 @@ const navLinks = [
 export function MarketingNav() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [hoveredLink, setHoveredLink] = useState<string | null>(null);
   const [scrolled, setScrolled] = useState<boolean>(false);
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+
+  // Authenticated user state from useUser hook
+  const { user, loading } = useUser();
 
   useEffect(() => {
     setMounted(true);
@@ -50,22 +52,6 @@ export function MarketingNav() {
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
-
-  // Auth session check
-  useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setIsAuthenticated(!!session);
-    });
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setIsAuthenticated(!!session);
-    });
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
 
   const activeTarget = hoveredLink ?? navLinks.find((l) => l.href === pathname)?.href ?? null;
 
@@ -118,7 +104,7 @@ export function MarketingNav() {
                     onFocus={() => setHoveredLink(link.href)}
                     onBlur={() => setHoveredLink(null)}
                     className={cn(
-                      'relative z-10 px-3.5 py-1.5 text-xs font-mono font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full',
+                      'relative z-10 px-3.5 py-1.5 text-xs font-sans font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full',
                       isSelected
                         ? 'text-foreground font-bold'
                         : 'text-muted-foreground hover:text-foreground'
@@ -162,13 +148,14 @@ export function MarketingNav() {
               </motion.button>
             )}
 
-            {isAuthenticated === null ? (
-              <div className="h-8 w-24 animate-pulse rounded-full bg-muted/40" />
-            ) : isAuthenticated ? (
+            {loading ? (
+              <div className="h-8 w-32 animate-pulse rounded-full bg-muted/30 border border-border/40" />
+            ) : user ? (
               <Link href="/dashboard">
                 <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}>
-                  <Button size="sm" className="rounded-full text-xs font-mono">
-                    Dashboard
+                  <Button size="sm" className="rounded-full text-xs font-mono gap-1 font-semibold group">
+                    <span>Dashboard</span>
+                    <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-1" />
                   </Button>
                 </motion.div>
               </Link>
@@ -271,19 +258,20 @@ export function MarketingNav() {
                         aria-current={isActive ? 'page' : undefined}
                       >
                         <span>{link.label}</span>
-                        {isActive && <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />}
+                        {isActive && <span className="h-1.5 w-1.5 rounded-full bg-accent-brand" />}
                       </Link>
                     </motion.div>
                   );
                 })}
 
                 <div className="pt-3 mt-2 border-t border-border/40 flex gap-2">
-                  {isAuthenticated === null ? (
-                    <div className="h-8 w-full animate-pulse rounded-full bg-muted/40" />
-                  ) : isAuthenticated ? (
+                  {loading ? (
+                    <div className="h-8 w-full animate-pulse rounded-full bg-muted/30 border border-border/40" />
+                  ) : user ? (
                     <Link href="/dashboard" className="flex-1">
-                      <Button size="sm" className="w-full rounded-full text-xs font-mono">
-                        Dashboard
+                      <Button size="sm" className="w-full rounded-full text-xs font-mono gap-1">
+                        <span>Dashboard</span>
+                        <ArrowRight className="h-3 w-3" />
                       </Button>
                     </Link>
                   ) : (
@@ -294,8 +282,9 @@ export function MarketingNav() {
                         </Button>
                       </Link>
                       <Link href="/signup" className="flex-1">
-                        <Button size="sm" className="w-full rounded-full text-xs font-mono">
-                          Get started
+                        <Button size="sm" className="w-full rounded-full text-xs font-mono gap-1">
+                          <span>Get started</span>
+                          <ArrowRight className="h-3 w-3" />
                         </Button>
                       </Link>
                     </>

@@ -22,6 +22,7 @@ export class GoogleDriveProvider implements IStorageProvider {
     supportsOAuth: true,
     supportsWebhooks: false,
     supportsResumableUpload: true,
+    canOpenExternally: true,
   };
 
   /**
@@ -104,7 +105,32 @@ export class GoogleDriveProvider implements IStorageProvider {
     userId: string,
     objectPathOrId: string
   ): Promise<string> {
-    throw new Error('GoogleDriveProvider.getAccessUrl is not implemented yet.');
+    const client = await GoogleDriveClient.createForUser(userId);
+    const fileId = objectPathOrId.startsWith('google_drive://')
+      ? objectPathOrId.split('/').pop()!
+      : objectPathOrId;
+
+    try {
+      const fileRes = await client.drive.files.get({
+        fileId,
+        fields: 'id, name, mimeType, webViewLink, webContentLink, trashed',
+      });
+
+      if (fileRes.data.trashed) {
+        throw new Error('This Google Drive file is no longer available (trashed).');
+      }
+
+      const url = fileRes.data.webViewLink || fileRes.data.webContentLink;
+      if (!url) {
+        throw new Error('Google Drive API did not return an access link for this file.');
+      }
+      return url;
+    } catch (err: any) {
+      if (err.message?.includes('trashed') || err.message?.includes('no longer available')) {
+        throw err;
+      }
+      throw new Error('This Google Drive file is no longer available or access was revoked.');
+    }
   }
 
   async deletePhysicalObject(

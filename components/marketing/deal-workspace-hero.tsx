@@ -1,77 +1,60 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   FileText,
-  DollarSign,
-  FolderLock,
   CheckCircle2,
   Lock,
+  Unlock,
+  Eye,
+  ArrowRight,
+  Sparkles,
+  ShieldCheck,
   Clock,
   Activity,
-  ArrowRight,
-  ShieldCheck,
-  ChevronRight,
-  Download,
-  AlertCircle,
-  Sparkles,
-  Layers,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatCurrency } from '@/lib/plans';
+
+type DealStage = 'agreed' | 'deliverable' | 'review' | 'approved' | 'paid';
+
+const LIVE_ACTIVITIES = [
+  'Client viewing Homepage v2 preview',
+  'File integrity verified (sha256: 8f9b2c...)',
+  'Payment protection active in secure portal',
+  'OTP session authenticated for client@starkcorp.com',
+  'Review feedback synced to deal log',
+];
 
 export function DealWorkspaceHero() {
-  const [activeTab, setActiveTab] = useState<'scope' | 'negotiation' | 'files' | 'review' | 'payment' | 'activity'>('scope');
+  const [currentStage, setCurrentStage] = useState<DealStage>('review');
+  const [activityIdx, setActivityIdx] = useState(0);
 
-  // Interactive negotiation state for live demo
-  const [proposedPrice, setProposedPrice] = useState<number>(22500);
-  const [isAccepted, setIsAccepted] = useState<boolean>(true);
-
-  // File preview interactive selection
-  const [selectedFileVer, setSelectedFileVer] = useState<'v1' | 'v2' | 'final'>('final');
-
-  // Ambient live ticker event index
-  const [tickerIdx, setTickerIdx] = useState<number>(0);
-  const [isVisible, setIsVisible] = useState<boolean>(true);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  // Viewport IntersectionObserver to pause offscreen continuous animation
+  // Level 2 continuous motion — live activity ticker rotation
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => setIsVisible(entry.isIntersecting),
-      { threshold: 0.1 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
+    const timer = setInterval(() => {
+      setActivityIdx((prev) => (prev + 1) % LIVE_ACTIVITIES.length);
+    }, 4500);
+    return () => clearInterval(timer);
   }, []);
 
-  // Ambient activity ticker cycle (only runs when visible in viewport)
-  useEffect(() => {
-    if (!isVisible) return;
-    const interval = setInterval(() => {
-      setTickerIdx((prev) => (prev + 1) % 3);
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [isVisible]);
-
-  const tickerEvents = [
-    { text: 'Stark Corp deposited ₹22,500 in Escrow Safeguard', status: 'Secured' },
-    { text: 'Apex Studio uploaded app-production-final.zip (v3.0)', status: 'Payment Locked' },
-    { text: 'OTP Authentication verified for client access session', status: 'Verified' },
+  const STAGES: { id: DealStage; label: string; number: string }[] = [
+    { id: 'agreed', label: 'Agreed Deal', number: '01' },
+    { id: 'deliverable', label: 'Deliverable', number: '02' },
+    { id: 'review', label: 'Client Review', number: '03' },
+    { id: 'approved', label: 'Approval', number: '04' },
+    { id: 'paid', label: 'Payment', number: '05' },
   ];
-
-  const currentTicker = tickerEvents[tickerIdx];
 
   return (
     <motion.div
-      ref={containerRef}
-      whileHover={{ y: -2, transition: { duration: 0.2 } }}
-      className="relative w-full rounded-2xl border border-border/80 bg-card/90 p-3 sm:p-5 shadow-2xl backdrop-blur-xl transition-all duration-300"
+      whileHover={{ y: -2 }}
+      transition={{ duration: 0.3 }}
+      className="relative w-full rounded-2xl border border-border/80 bg-card/90 p-4 sm:p-6 shadow-2xl backdrop-blur-xl transition-all duration-300 font-sans"
     >
-      {/* Visual Window Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3 px-2">
+      {/* Top Bar: Workspace Identity & Live Status Ticker */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-4">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
             <span className="h-3 w-3 rounded-full bg-rose-500/80 inline-block" />
@@ -79,436 +62,292 @@ export function DealWorkspaceHero() {
             <span className="h-3 w-3 rounded-full bg-emerald-500/80 inline-block" />
           </div>
           <div className="h-4 w-[1px] bg-border" />
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-xs font-semibold text-foreground tracking-tight">
-              DLT-8V26RW75
-            </span>
-            <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-              LIVE WORKSPACE
-            </span>
-          </div>
+          <span className="text-xs font-semibold text-foreground tracking-tight font-display">
+            Apex Studio × Stark Corp
+          </span>
+          <span className="text-[10px] font-mono text-muted-foreground bg-muted/50 px-2 py-0.5 rounded">
+            DLT-2026-X94
+          </span>
         </div>
 
-        {/* Continuous Live Activity Ticker */}
-        <div className="hidden sm:flex items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-[11px] font-mono text-muted-foreground">
-          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-          <AnimatePresence mode="wait">
-            <motion.span
-              key={tickerIdx}
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.2 }}
-              className="truncate max-w-[280px]"
-            >
-              {currentTicker.text}
-            </motion.span>
-          </AnimatePresence>
+        <div className="flex items-center gap-2">
+          {/* Level 2 Continuous Pulse Indicator */}
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            </span>
+            Active Deal Workspace
+          </span>
         </div>
       </div>
 
-      {/* Main Workspace Frame */}
-      <div className="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* Navigation Sidebar / Tabs */}
-        <div className="lg:col-span-3 flex lg:flex-col gap-1 overflow-x-auto pb-2 lg:pb-0 scrollbar-thin">
-          {[
-            { id: 'scope', label: '1. Scope & Plan', icon: Layers, badge: '3 items' },
-            { id: 'negotiation', label: '2. Negotiation', icon: DollarSign, badge: isAccepted ? 'Agreed' : 'Pending' },
-            { id: 'files', label: '3. Deliverables', icon: FolderLock, badge: 'v3 Final' },
-            { id: 'review', label: '4. Client Review', icon: CheckCircle2, badge: 'Approved' },
-            { id: 'payment', label: '5. Escrow Payment', icon: Lock, badge: 'Secured' },
-            { id: 'activity', label: '6. Audit Trail', icon: Activity, badge: 'Live' },
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
+      {/* Lifecycle Progress Bar */}
+      <div className="mt-5 border-b border-border/40 pb-5">
+        <div className="grid grid-cols-5 gap-2 text-center">
+          {STAGES.map((s, idx) => {
+            const isCurrent = currentStage === s.id;
+            const stageOrder = ['agreed', 'deliverable', 'review', 'approved', 'paid'];
+            const isPassed = stageOrder.indexOf(currentStage) > idx;
+
             return (
-              <motion.button
-                key={tab.id}
-                whileHover={{ scale: 1.01 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => setActiveTab(tab.id as any)}
+              <button
+                key={s.id}
+                onClick={() => setCurrentStage(s.id)}
                 className={cn(
-                  'relative flex items-center justify-between gap-2.5 rounded-lg px-3 py-2.5 text-xs font-medium transition-all text-left whitespace-nowrap shrink-0 lg:shrink cursor-pointer',
-                  isActive
-                    ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  'group flex flex-col items-center gap-1.5 py-2 px-1 rounded-xl transition-all cursor-pointer',
+                  isCurrent
+                    ? 'bg-accent-brand/10 border border-accent-brand/30 text-accent-brand font-semibold shadow-xs'
+                    : isPassed
+                    ? 'text-emerald-600 dark:text-emerald-400 font-medium hover:bg-muted/40'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
                 )}
               >
-                <div className="flex items-center gap-2">
-                  <Icon className={cn('h-3.5 w-3.5', isActive ? 'text-primary-foreground' : 'text-muted-foreground')} />
-                  <span>{tab.label}</span>
+                <div
+                  className={cn(
+                    'flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold transition-all',
+                    isCurrent
+                      ? 'bg-accent-brand text-accent-brand-foreground shadow-sm'
+                      : isPassed
+                      ? 'bg-emerald-500 text-white'
+                      : 'bg-muted text-muted-foreground group-hover:bg-muted-foreground/20'
+                  )}
+                >
+                  {isPassed ? <CheckCircle2 className="h-4 w-4" /> : s.number}
                 </div>
-                {tab.badge && (
-                  <span
-                    className={cn(
-                      'rounded px-1.5 py-0.5 text-[10px] font-mono font-medium',
-                      isActive
-                        ? 'bg-primary-foreground/20 text-primary-foreground'
-                        : 'bg-muted-foreground/15 text-muted-foreground'
-                    )}
-                  >
-                    {tab.badge}
-                  </span>
-                )}
-              </motion.button>
+                <span className="text-[11px] sm:text-xs tracking-tight truncate w-full font-display">
+                  {s.label}
+                </span>
+              </button>
             );
           })}
         </div>
+      </div>
 
-        {/* Tab Interactive Panel */}
-        <div className="lg:col-span-9 rounded-xl border border-border/60 bg-card p-4 sm:p-5 min-h-[340px] flex flex-col justify-between shadow-xs">
-          <AnimatePresence mode="wait">
-            {/* 1. SCOPE TAB */}
-            {activeTab === 'scope' && (
-              <motion.div
-                key="scope"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.2 }}
-                className="space-y-4"
-              >
-                <div className="flex items-center justify-between border-b border-border/40 pb-3">
-                  <div>
-                    <h3 className="font-semibold text-sm sm:text-base text-foreground">
-                      E-Commerce Web Application & Brand Identity
-                    </h3>
-                    <p className="text-xs text-muted-foreground">
-                      Structured scope agreed by Apex Studio and Stark Corp
-                    </p>
-                  </div>
-                  <span className="font-mono text-xs font-bold text-foreground bg-muted/40 border border-border px-2.5 py-1 rounded-md">
-                    Total: ₹22,500
-                  </span>
-                </div>
-
-                <div className="space-y-2.5">
-                  {[
-                    { title: 'Milestone 1: Wireframes & Brand Kit', amount: '₹7,500', status: 'Completed', date: 'Sep 12' },
-                    { title: 'Milestone 2: Next.js Frontend & Product Catalog', amount: '₹10,000', status: 'In Review', date: 'Sep 16' },
-                    { title: 'Milestone 3: Stripe Payment Integration & Launch', amount: '₹5,000', status: 'Pending', date: 'Sep 20' },
-                  ].map((m, idx) => (
-                    <div
-                      key={m.title}
-                      className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/30 p-3 text-xs transition-all hover:border-amber-500/40"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted font-mono text-[10px] font-bold">
-                          {idx + 1}
-                        </span>
-                        <div>
-                          <p className="font-medium text-foreground">{m.title}</p>
-                          <p className="text-[11px] text-muted-foreground">Due {m.date}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono font-semibold text-foreground">{m.amount}</span>
-                        <span
-                          className={cn(
-                            'rounded-full px-2 py-0.5 text-[10px] font-medium font-mono',
-                            m.status === 'Completed'
-                              ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                              : m.status === 'In Review'
-                              ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-                              : 'bg-muted text-muted-foreground'
-                          )}
-                        >
-                          {m.status}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-
-            {/* 2. NEGOTIATION TAB */}
-            {activeTab === 'negotiation' && (
-              <motion.div
-                key="negotiation"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.2 }}
-                className="space-y-4"
-              >
-                <div className="border-b border-border/40 pb-3">
-                  <h3 className="font-semibold text-sm sm:text-base text-foreground">
-                    Interactive Price Offer & Negotiation
+      {/* Dynamic Deal Stage Visualizer */}
+      <div className="mt-5 rounded-xl border border-border/80 bg-muted/20 p-5 sm:p-6 min-h-[280px] flex flex-col justify-between">
+        <AnimatePresence mode="wait">
+          {/* STAGE 1: AGREED DEAL */}
+          {currentStage === 'agreed' && (
+            <motion.div
+              key="agreed"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              className="space-y-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 pb-3">
+                <div>
+                  <h3 className="text-base font-semibold text-foreground font-display">
+                    Web Application & Brand Identity
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    Try adjusting the proposal slider to simulate real-time price counter-offers.
+                    Contract scope and pricing agreed by both parties
                   </p>
                 </div>
+                <span className="text-sm font-bold text-foreground bg-card border border-border/80 px-3 py-1 rounded-lg shadow-xs">
+                  Agreed Price: {formatCurrency(56000)}
+                </span>
+              </div>
 
-                <div className="rounded-xl border border-border/80 bg-muted/30 p-4 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-muted-foreground">Client Budget Proposal:</span>
-                    <span className="font-mono text-sm font-bold text-foreground">₹20,000</span>
-                  </div>
-
-                  {/* Interactive Slider */}
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs text-muted-foreground font-mono">
-                      <span>₹20,000</span>
-                      <span className="font-bold text-foreground text-sm">
-                        Selected Counter: ₹{proposedPrice.toLocaleString('en-IN')}
-                      </span>
-                      <span>₹30,000</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={20000}
-                      max={30000}
-                      step={500}
-                      value={proposedPrice}
-                      onChange={(e) => {
-                        setProposedPrice(Number(e.target.value));
-                        setIsAccepted(Number(e.target.value) === 22500);
-                      }}
-                      className="w-full accent-amber-500 cursor-pointer"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between gap-3 pt-2">
-                    <div className="text-xs text-muted-foreground font-mono">
-                      Status:{' '}
-                      {isAccepted ? (
-                        <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                          ACCEPTED & LOCKED AT ₹22,500
-                        </span>
-                      ) : (
-                        <span className="font-medium text-amber-600 dark:text-amber-400">
-                          PROPOSAL PENDING APPROVAL
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => {
-                        setProposedPrice(22500);
-                        setIsAccepted(true);
-                      }}
-                      className="rounded-md bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground transition-transform active:scale-95"
-                    >
-                      {isAccepted ? 'Price Accepted' : 'Accept ₹22,500'}
-                    </button>
-                  </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                <div className="rounded-xl border border-border/60 bg-card p-3.5 space-y-1">
+                  <span className="text-xs font-semibold text-muted-foreground">Creator</span>
+                  <p className="text-sm font-semibold text-foreground">Apex Studio</p>
+                  <p className="text-xs text-muted-foreground">Delivery: 3 Version Milestones</p>
                 </div>
+                <div className="rounded-xl border border-border/60 bg-card p-3.5 space-y-1">
+                  <span className="text-xs font-semibold text-muted-foreground">Client</span>
+                  <p className="text-sm font-semibold text-foreground">Stark Corp</p>
+                  <p className="text-xs text-muted-foreground">Access: Verified via OTP</p>
+                </div>
+              </div>
+            </motion.div>
+          )}
 
-                <p className="text-[11px] text-muted-foreground italic font-mono">
-                  Note: In DELT workspaces, every price offer is recorded with reasoning and creates an immutable contract audit record.
+          {/* STAGE 2: DELIVERABLE READY */}
+          {currentStage === 'deliverable' && (
+            <motion.div
+              key="deliverable"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              className="space-y-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 pb-3">
+                <div>
+                  <h3 className="text-base font-semibold text-foreground font-display">
+                    Deliverable Uploaded (v2.0)
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Apex Studio submitted production-deliverables-v2.zip
+                  </p>
+                </div>
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded-lg">
+                  <Lock className="h-3.5 w-3.5" /> Protected Until Payment
+                </span>
+              </div>
+
+              <div className="rounded-xl border border-border/60 bg-card p-4 space-y-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-foreground">production-deliverables-v2.zip</span>
+                  <span className="text-muted-foreground font-mono text-[11px]">48.2 MB</span>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Contains Next.js frontend code, Figma UI design assets, and responsive landing page templates. Watermarked preview available for review.
                 </p>
-              </motion.div>
-            )}
+              </div>
+            </motion.div>
+          )}
 
-            {/* 3. FILES TAB */}
-            {activeTab === 'files' && (
-              <motion.div
-                key="files"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.2 }}
-                className="space-y-4"
-              >
-                <div className="border-b border-border/40 pb-3">
-                  <h3 className="font-semibold text-sm sm:text-base text-foreground">
-                    Payment-Gated Deliverables & Revision History
+          {/* STAGE 3: CLIENT REVIEW (DEFAULT PRIMARY STATE) */}
+          {currentStage === 'review' && (
+            <motion.div
+              key="review"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              className="space-y-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 pb-3">
+                <div>
+                  <h3 className="text-base font-semibold text-foreground font-display">
+                    Deliverable Ready for Client Review
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    Files are protected until payment clears. Click versions to inspect.
+                    Stark Corp is reviewing Homepage v2 ({formatCurrency(56000)})
                   </p>
                 </div>
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-500/10 border border-blue-500/20 px-3 py-1 rounded-lg">
+                  <Eye className="h-3.5 w-3.5" /> Ready for Review
+                </span>
+              </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  {[
-                    { ver: 'v1', name: 'app-wireframes-v1.zip', size: '14.2 MB', status: 'Feedback Given', time: 'Sep 12' },
-                    { ver: 'v2', name: 'nextjs-build-v2.zip', size: '48.6 MB', status: 'Reviewed', time: 'Sep 15' },
-                    { ver: 'final', name: 'app-production-final.zip', size: '82.1 MB', status: 'Payment Locked', time: 'Just now' },
-                  ].map((f) => {
-                    const isSelected = selectedFileVer === f.ver;
-                    return (
-                      <button
-                        key={f.ver}
-                        onClick={() => setSelectedFileVer(f.ver as any)}
-                        className={cn(
-                          'rounded-xl border p-3 text-left transition-all',
-                          isSelected
-                            ? 'border-foreground/40 bg-muted/40 shadow-xs'
-                            : 'border-border/60 bg-muted/20 hover:bg-muted/30'
-                        )}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-mono text-xs font-bold text-foreground uppercase">{f.ver}</span>
-                          <span className="text-[10px] text-muted-foreground">{f.time}</span>
-                        </div>
-                        <p className="font-mono text-xs font-semibold text-foreground truncate">{f.name}</p>
-                        <p className="text-[11px] text-muted-foreground mt-1">{f.size}</p>
-                        <div className="mt-3 flex items-center gap-1.5 text-[10px] font-medium font-mono">
-                          {f.ver === 'final' ? (
-                            <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold">
-                              <Lock className="h-3 w-3" /> Locked until payment
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">{f.status}</span>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="rounded-xl border border-border/60 bg-card p-4 space-y-2">
+                  <span className="text-xs font-semibold text-muted-foreground">Deliverable</span>
+                  <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-accent-brand" />
+                    <span>Homepage v2</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">Watermarked preview active in portal</p>
                 </div>
-
-                <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 font-medium">
-                    <Lock className="h-4 w-4 shrink-0" />
-                    <span>Selected: <strong>app-production-final.zip</strong> (Payment Escrow Protection Active)</span>
-                  </div>
-                  <span className="text-[10px] font-mono bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded">
-                    SHA-256 Verified
-                  </span>
+                <div className="rounded-xl border border-border/60 bg-card p-4 space-y-2">
+                  <span className="text-xs font-semibold text-muted-foreground">Payment Protection</span>
+                  <p className="text-sm font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-2">
+                    <Lock className="h-4 w-4" />
+                    <span>Protected Until Approval</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">Files unlock automatically after payment</p>
                 </div>
-              </motion.div>
-            )}
+              </div>
+            </motion.div>
+          )}
 
-            {/* 4. REVIEW TAB */}
-            {activeTab === 'review' && (
-              <motion.div
-                key="review"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.2 }}
-                className="space-y-4"
-              >
-                <div className="border-b border-border/40 pb-3">
-                  <h3 className="font-semibold text-sm sm:text-base text-foreground">
-                    Structured Approval & Sign-Off
+          {/* STAGE 4: APPROVAL */}
+          {currentStage === 'approved' && (
+            <motion.div
+              key="approved"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              className="space-y-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 pb-3">
+                <div>
+                  <h3 className="text-base font-semibold text-foreground font-display">
+                    Client Approved Deliverables
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    Client reviews deliverables and issues cryptographic sign-off.
+                    Stark Corp confirmed: &ldquo;Homepage v2 approved.&rdquo;
                   </p>
                 </div>
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-lg">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Approved
+                </span>
+              </div>
 
-                <div className="rounded-xl border border-border/80 bg-muted/30 p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                      <span className="font-semibold text-xs sm:text-sm">Client Approval State: Approved</span>
-                    </div>
-                    <span className="font-mono text-[10px] text-muted-foreground">Timestamp: 2026-09-17 14:22 UTC</span>
-                  </div>
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-2">
+                <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                  Ready for Payment Completion
+                </p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Upon payment confirmation of {formatCurrency(56000)}, final high-resolution assets unlock automatically for Stark Corp and payout transfers directly to Apex Studio.
+                </p>
+              </div>
+            </motion.div>
+          )}
 
-                  <p className="text-xs text-muted-foreground bg-card p-3 rounded-md border border-border/40">
-                    "All responsive layouts and checkout payment flows tested cleanly. Approved for escrow payout release."
-                  </p>
-
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/40 text-[11px] font-mono text-muted-foreground">
-                    <span>Approved by: Stark Corp (OTP Verified)</span>
-                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">Signature: 0x8f...4c19</span>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {/* 5. PAYMENT TAB */}
-            {activeTab === 'payment' && (
-              <motion.div
-                key="payment"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.2 }}
-                className="space-y-4"
-              >
-                <div className="border-b border-border/40 pb-3">
-                  <h3 className="font-semibold text-sm sm:text-base text-foreground">
-                    Escrow Protection & Automated Payout
+          {/* STAGE 5: PAYMENT COMPLETED */}
+          {currentStage === 'paid' && (
+            <motion.div
+              key="paid"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              className="space-y-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 pb-3">
+                <div>
+                  <h3 className="text-base font-semibold text-foreground font-display">
+                    Payment Released & Files Unlocked
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    Funds are held safely in escrow until the client approves the work.
+                    Deal complete: {formatCurrency(56000)} transferred to creator
                   </p>
                 </div>
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-lg">
+                  <Unlock className="h-3.5 w-3.5" /> Deliverables Unlocked
+                </span>
+              </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="rounded-xl border border-border/80 bg-muted/30 p-4 space-y-2">
-                    <span className="text-xs text-muted-foreground uppercase tracking-wider font-mono font-medium">
-                      Escrow Deposit Status
-                    </span>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-2xl font-mono font-bold text-foreground">₹22,500</span>
-                      <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 font-mono">FUNDS SECURED</span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      Client deposited funds before creator commenced final delivery.
-                    </p>
-                  </div>
-
-                  <div className="rounded-xl border border-border/80 bg-muted/30 p-4 space-y-2">
-                    <span className="text-xs text-muted-foreground uppercase tracking-wider font-mono font-medium">
-                      Creator Payout Release
-                    </span>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-2xl font-mono font-bold text-emerald-600 dark:text-emerald-400">READY</span>
-                      <span className="text-xs text-muted-foreground font-mono">(Instant transfer)</span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      Upon approval, files unlock for client and funds release to creator instantly.
-                    </p>
-                  </div>
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 space-y-2">
+                <div className="flex items-center justify-between text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                  <span>Transaction Complete</span>
+                  <span>{formatCurrency(56000)} Payout Sent</span>
                 </div>
-              </motion.div>
-            )}
+                <p className="text-xs text-muted-foreground">
+                  Stark Corp downloaded production-deliverables-v2.zip. Deal activity record archived cleanly.
+                </p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-            {/* 6. ACTIVITY TAB */}
-            {activeTab === 'activity' && (
-              <motion.div
-                key="activity"
-                initial={{ opacity: 0, y: 8 }}
+        {/* Live Activity Level 2 Ticker */}
+        <div className="mt-4 pt-3 border-t border-border/40 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 font-medium">
+            <Activity className="h-3.5 w-3.5 text-accent-brand shrink-0 animate-pulse" />
+            <AnimatePresence mode="wait">
+              <motion.span
+                key={activityIdx}
+                initial={{ opacity: 0, y: 4 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.2 }}
-                className="space-y-4"
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.25 }}
+                className="text-[11px] text-muted-foreground truncate max-w-[280px] sm:max-w-none"
               >
-                <div className="border-b border-border/40 pb-3">
-                  <h3 className="font-semibold text-sm sm:text-base text-foreground">
-                    Immutable Audit Trail Log
-                  </h3>
-                  <p className="text-xs text-muted-foreground">
-                    Every proposal, file version, review, and payment event is permanently logged.
-                  </p>
-                </div>
-
-                <div className="space-y-2 font-mono text-[11px]">
-                  {[
-                    { time: '14:22:04', event: 'Client Stark Corp approved final milestone (0x8f...4c19)', type: 'success' },
-                    { time: '14:20:10', event: 'Creator uploaded app-production-final.zip (82.1 MB)', type: 'info' },
-                    { time: '12:05:44', event: 'Counter proposal accepted: Agreed price ₹22,500', type: 'warning' },
-                    { time: '10:00:00', event: 'Deal workspace created: DLT-8V26RW75', type: 'default' },
-                  ].map((log, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center gap-3 rounded border border-border/40 bg-muted/40 px-3 py-2 text-foreground/90"
-                    >
-                      <span className="text-muted-foreground text-[10px]">{log.time}</span>
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
-                      <span className="truncate">{log.event}</span>
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Bottom Interactive Bar */}
-          <div className="mt-4 pt-3 border-t border-border/40 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground font-mono">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-              <span>Click tabs above to simulate actual DELT workspace interactions</span>
-            </div>
-            <div>
-              DELT Deal Engine v2.4
-            </div>
+                {LIVE_ACTIVITIES[activityIdx]}
+              </motion.span>
+            </AnimatePresence>
           </div>
+
+          <button
+            onClick={() => {
+              const stages: DealStage[] = ['agreed', 'deliverable', 'review', 'approved', 'paid'];
+              const nextIdx = (stages.indexOf(currentStage) + 1) % stages.length;
+              setCurrentStage(stages[nextIdx]);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent-brand text-accent-brand-foreground px-3 py-1.5 font-semibold transition-all hover:brightness-110 active:scale-95 cursor-pointer shadow-xs text-xs"
+          >
+            <span>Next Stage</span>
+            <ArrowRight className="h-3.5 w-3.5" />
+          </button>
         </div>
       </div>
     </motion.div>

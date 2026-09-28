@@ -17,6 +17,7 @@ export default function ClientInvoicePage() {
   const [invoice, setInvoice] = useState<any>(null);
   const [deal, setDeal] = useState<any>(null);
   const [creator, setCreator] = useState<any>(null);
+  const [creatorUsername, setCreatorUsername] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -56,6 +57,7 @@ export default function ClientInvoicePage() {
         setDeal(accessData.deal);
         setInvoice(invData);
         setCreator(invData.creator);
+        setCreatorUsername(accessData.creatorUsername || invData.creator?.username || 'creator');
         
         setLoading(false);
       } catch (err) {
@@ -75,7 +77,7 @@ export default function ClientInvoicePage() {
     <div className="min-h-screen bg-muted/20 py-8 px-4">
       <div className="max-w-4xl mx-auto space-y-6">
         <div className="flex justify-between items-center print:hidden">
-          <Button variant="ghost" onClick={() => router.push(`/deal/${token}`)}>
+          <Button variant="ghost" onClick={() => router.push(creatorUsername ? `/${encodeURIComponent(creatorUsername)}/${token}` : `/deal/${token}`)}>
             <ArrowLeft className="w-4 h-4 mr-2" /> Back to Deal
           </Button>
           

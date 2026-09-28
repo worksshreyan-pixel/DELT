@@ -1,306 +1,290 @@
 'use client';
 
+import React from 'react';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
+import { motion, Variants } from 'framer-motion';
 import {
   FolderKanban,
   Clock,
-  CheckCircle2,
   HardDrive,
   ArrowRight,
   Plus,
-  User,
-  Sparkles,
-  Link as LinkIcon,
-  MessageSquare,
+  User as UserIcon,
   Shield,
 } from 'lucide-react';
-import { PageHeader } from '@/components/app-shell';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { DealStatusBadge } from '@/components/deal-status-badge';
 import { UsageMeter } from '@/components/usage-meter';
 import { Timeline } from '@/components/timeline-event';
 import { EmptyState } from '@/components/empty-state';
 import { useAppStore } from '@/lib/app-store';
-import { formatCurrency, formatBytes } from '@/lib/plans';
+import { useUser } from '@/hooks/use-user';
+import { formatCurrency } from '@/lib/plans';
+import { cn } from '@/lib/utils';
 
-function formatRelativeTime(iso: string): string {
-  const date = new Date(iso);
+function formatExpiryText(deal: { deadline?: string; createdAt?: string }): string {
+  const targetDate = deal.deadline
+    ? new Date(deal.deadline)
+    : new Date(new Date(deal.createdAt || Date.now()).getTime() + 7 * 24 * 60 * 60 * 1000);
   const now = new Date();
-  const diff = now.getTime() - date.getTime();
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  const hours = Math.floor(diff / (1000 * 60 * 60));
-  const mins = Math.floor(diff / (1000 * 60));
-  if (days > 0) return `${days}d ago`;
-  if (hours > 0) return `${hours}h ago`;
-  if (mins > 0) return `${mins}m ago`;
-  return 'Just now';
+  const diffMs = targetDate.getTime() - now.getTime();
+  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays > 1) return `Expires in ${diffDays} days`;
+  if (diffDays === 1) return `Expires in 1 day`;
+  if (diffDays === 0) return `Expires today`;
+  const pastDays = Math.abs(diffDays);
+  if (pastDays === 1) return `Expired 1 day ago`;
+  return `Expired ${pastDays} days ago`;
 }
 
 export default function DashboardPage() {
   const store = useAppStore();
-  const deals = store.deals;
-  const activeDeals = deals.filter((d) => ['in_progress', 'negotiating', 'sent', 'viewed', 'agreed'].includes(d.status));
-  const pendingPayments = deals.filter((d) => d.paymentStatus === 'pending' || d.status === 'payment_pending');
-  const completedDeals = deals.filter((d) => d.status === 'completed');
-  const pendingPaymentSum = pendingPayments.reduce((acc, d) => acc + d.price, 0);
-  const storagePercent = store.storage.limitBytes > 0 
-    ? Math.round((store.storage.totalBytes / store.storage.limitBytes) * 100) 
-    : 0;
+  const { user, profile } = useUser();
+
+  const displayName =
+    profile?.displayName ||
+    user?.user_metadata?.displayName ||
+    store.user.displayName ||
+    'Creator';
+
+  const deals = store.deals || [];
+  const activeDeals = deals.filter((d) =>
+    ['in_progress', 'negotiating', 'sent', 'viewed', 'agreed', 'delivered', 'payment_pending'].includes(d.status)
+  );
 
   // Flatten recent events across all deals
-  const allEvents = Object.values(store.events).flat().sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
+  const allEvents = Object.values(store.events || {})
+    .flat()
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const recentEvents = allEvents.slice(0, 5);
 
-  const stats = [
-    {
-      label: 'Active Deals',
-      value: String(activeDeals.length),
-      subtext: `${deals.length} total deals`,
-      icon: FolderKanban,
-      color: 'text-primary bg-primary/10',
+  const connections = (store as any).connections || [];
+  const googleConn = connections.find((c: any) => c.provider === 'google_drive' && c.status === 'connected');
+
+  // Stagger animation container variants
+  const containerVariants: Variants = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.06,
+      },
     },
-    {
-      label: 'Pending Payments',
-      value: formatCurrency(pendingPaymentSum),
-      subtext: `${pendingPayments.length} awaiting payment`,
-      icon: Clock,
-      color: 'text-amber-600 bg-amber-50 dark:bg-amber-950',
-    },
-    {
-      label: 'Completed Deals',
-      value: String(completedDeals.length),
-      subtext: 'Delivered & paid',
-      icon: CheckCircle2,
-      color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950',
-    },
-    {
-      label: 'Storage Usage',
-      value: `${formatBytes(store.storage.totalBytes)}`,
-      subtext: `${storagePercent}% of ${formatBytes(store.storage.limitBytes)}`,
-      icon: HardDrive,
-      color: 'text-blue-600 bg-blue-50 dark:bg-blue-950',
-    },
-  ];
+  };
+
+  const itemVariants: Variants = {
+    hidden: { opacity: 0, y: 8 },
+    show: { opacity: 1, y: 0, transition: { duration: 0.25 } },
+  };
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Dashboard"
-        description="Overview of your client deals and transaction pipeline."
-        action={
-          <Link href="/deals/new">
-            <Button className="gap-2">
-              <Plus className="h-4 w-4" />
-              Create Deal
-            </Button>
-          </Link>
-        }
-      />
-
-      {/* First-time Onboarding Welcome Card (Visible when 0 deals) */}
-      {deals.length === 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-        >
-          <Card className="border-primary/20 bg-gradient-to-br from-primary/[0.04] to-background">
-            <CardContent className="p-6 sm:p-8">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
-                <div className="space-y-2 max-w-xl">
-                  <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                    <Sparkles className="h-3.5 w-3.5" />
-                    First Time Setup
-                  </div>
-                  <h2 className="text-xl font-display font-semibold tracking-tight">
-                    Welcome to DELT
-                  </h2>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    Create a private Deal, share it with your client, collaborate, negotiate and deliver everything from one unified workspace.
-                  </p>
-                </div>
-                <div className="shrink-0">
-                  <Link href="/deals/new">
-                    <Button size="lg" className="w-full sm:w-auto gap-2 shadow-sm">
-                      <Plus className="h-4 w-4" />
-                      Create your first Deal
-                    </Button>
-                  </Link>
-                </div>
-              </div>
-
-              {/* Step Checklist */}
-              <div className="mt-6 pt-6 border-t border-border grid gap-3 sm:grid-cols-3">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-semibold shrink-0 mt-0.5">
-                    1
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium">Create your first Deal</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">Set scope, pricing & deliverables</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-muted-foreground text-xs font-semibold shrink-0 mt-0.5">
-                    2
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium">Share private link</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">Client accesses without creating account</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-muted-foreground text-xs font-semibold shrink-0 mt-0.5">
-                    3
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium">Deliver & get paid</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">Files unlock automatically upon payment</p>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
-
-      {/* 4 Core KPIs */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {stats.map((stat, i) => (
-          <motion.div
-            key={stat.label}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2, delay: i * 0.04 }}
-          >
-            <Card>
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${stat.color}`}>
-                    <stat.icon className="h-4 w-4" />
-                  </div>
-                </div>
-                <p className="text-2xl font-display font-semibold tabular-nums">{stat.value}</p>
-                <p className="text-xs font-medium text-foreground mt-0.5">{stat.label}</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">{stat.subtext}</p>
-              </CardContent>
-            </Card>
-          </motion.div>
-        ))}
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Recent Deals */}
-        <div className="lg:col-span-2">
-          <Card>
-            <CardHeader className="flex-row items-center justify-between space-y-0 pb-4">
-              <div>
-                <CardTitle className="text-base">Recent Deals</CardTitle>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {deals.length > 0 ? 'Your active and past client workspaces' : 'No Deals yet'}
-                </p>
-              </div>
-              {deals.length > 0 && (
-                <Link href="/deals">
-                  <Button variant="ghost" size="sm" className="gap-1 text-muted-foreground">
-                    View all deals
-                    <ArrowRight className="h-3.5 w-3.5" />
-                  </Button>
-                </Link>
-              )}
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {deals.length === 0 ? (
-                <EmptyState
-                  icon={FolderKanban}
-                  title="No Deals yet"
-                  description="Create your first Deal to start working with a client."
-                  actionLabel="Create Deal"
-                  actionHref="/deals/new"
-                />
-              ) : (
-                deals.slice(0, 5).map((deal) => {
-                  const client = store.clients.find((c) => c.id === deal.clientId);
-                  return (
-                    <Link
-                      key={deal.id}
-                      href={`/deals/${deal.dealCode || deal.id}`}
-                      className="flex flex-col sm:flex-row sm:items-center justify-between rounded-lg border border-border p-3.5 transition-colors hover:bg-accent/40 gap-2"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium text-sm truncate">{deal.title}</p>
-                          <DealStatusBadge status={deal.status} />
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
-                          <span className="flex items-center gap-1 font-medium text-foreground">
-                            <User className="h-3 w-3 text-muted-foreground" />
-                            {client?.name || 'Client'}
-                          </span>
-                          <span>·</span>
-                          <span>{formatCurrency(deal.price, deal.currency)}</span>
-                          <span>·</span>
-                          <span>Active {formatRelativeTime(deal.updatedAt)}</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        <span className="text-xs text-muted-foreground hidden md:inline">
-                          Due {deal.deadline ? new Date(deal.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—'}
-                        </span>
-                        <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                    </Link>
-                  );
-                })
-              )}
-            </CardContent>
-          </Card>
+    <motion.div
+      variants={containerVariants}
+      initial="hidden"
+      animate="show"
+      className="space-y-8 pb-12"
+    >
+      {/* Header & Primary CTA */}
+      <motion.div
+        variants={itemVariants}
+        className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-border/40 pb-6"
+      >
+        <div>
+          <h1 className="text-2xl font-display font-semibold tracking-tight text-foreground sm:text-3xl">
+            Dashboard
+          </h1>
+          <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
+            Good day, <span className="font-semibold text-foreground">{displayName}</span>. Here&apos;s what&apos;s happening across your deal workspaces.
+          </p>
         </div>
 
-        {/* Sidebar: Activity & Storage */}
-        <div className="space-y-4">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Recent Activity</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {recentEvents.length === 0 ? (
-                <EmptyState
-                  icon={Clock}
-                  title="No activity yet"
-                  description="Your Deal activity will appear here as you create and manage deals."
-                />
-              ) : (
-                <Timeline events={recentEvents} />
-              )}
-            </CardContent>
-          </Card>
+        <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="shrink-0">
+          <Link href="/deals/new">
+            <Button size="lg" className="w-full sm:w-auto gap-2 rounded-xl font-medium shadow-xs bg-accent-brand hover:bg-accent-brand/90 text-accent-brand-foreground">
+              <Plus className="h-4 w-4" />
+              <span>Create Deal</span>
+            </Button>
+          </Link>
+        </motion.div>
+      </motion.div>
 
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Workspace Status</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
+      {/* SECTION 1: Active Workspaces (Main Content Focal Point - Primary Surface) */}
+      <motion.div variants={itemVariants} className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground/90 flex items-center gap-1.5">
+              <FolderKanban className="h-4 w-4 text-accent-brand" />
+              Active Workspaces
+            </h2>
+          </div>
+
+          {deals.length > 0 && (
+            <Link href="/deals">
+              <Button variant="ghost" size="sm" className="gap-1 text-xs text-muted-foreground hover:text-foreground h-7 px-2">
+                <span>View all deals</span>
+                <ArrowRight className="h-3 w-3" />
+              </Button>
+            </Link>
+          )}
+        </div>
+
+        {activeDeals.length === 0 ? (
+          <div className="rounded-2xl border border-border/60 bg-card/60 p-8 text-center">
+            <EmptyState
+              icon={FolderKanban}
+              title="No active deals yet"
+              description="Create your first deal workspace to start collaborating with your client."
+              actionLabel="Create Deal"
+              actionHref="/deals/new"
+            />
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xs overflow-hidden divide-y divide-border/30 shadow-xs">
+            {activeDeals.map((deal) => {
+              const client = store.clients.find((c) => c.id === deal.clientId);
+              const expiryText = formatExpiryText(deal);
+
+              // Minimal status label & dot
+              let statusText = 'In Progress';
+              let statusDotColor = 'bg-accent-brand shadow-[0_0_6px_#3B82F6]';
+              if (deal.status === 'delivered') {
+                statusText = 'Awaiting Review';
+                statusDotColor = 'bg-purple-500 shadow-[0_0_6px_rgba(168,85,247,0.6)]';
+              } else if (deal.status === 'payment_pending' || (deal.paymentStatus === 'pending' && deal.status !== 'completed' && deal.status !== 'paid')) {
+                statusText = 'Awaiting Payment';
+                statusDotColor = 'bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.6)]';
+              } else if (['sent', 'viewed'].includes(deal.status)) {
+                statusText = 'Proposal Sent';
+                statusDotColor = 'bg-blue-400';
+              } else if (deal.status === 'negotiating') {
+                statusText = 'Negotiating';
+                statusDotColor = 'bg-amber-400';
+              } else if (['completed', 'paid'].includes(deal.status)) {
+                statusText = 'Completed';
+                statusDotColor = 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.6)]';
+              }
+
+              return (
+                <Link
+                  key={deal.id}
+                  href={`/deals/${deal.dealCode || deal.id}`}
+                  className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 hover:bg-muted/30 transition-all duration-150 group"
+                >
+                  {/* Deal Title & Client */}
+                  <div className="min-w-0 md:w-1/3">
+                    <h3 className="text-sm font-semibold text-foreground truncate group-hover:text-accent-brand transition-colors">
+                      {deal.title}
+                    </h3>
+                    <p className="text-xs text-muted-foreground truncate mt-0.5 flex items-center gap-1.5">
+                      <UserIcon className="h-3 w-3 text-muted-foreground/70 shrink-0" />
+                      <span>{client?.name || client?.email || (deal as any).clientName || (deal as any).clientEmail || 'Client'}</span>
+                    </p>
+                  </div>
+
+                  {/* Amount, Status, Expiry & Open CTA */}
+                  <div className="flex flex-wrap items-center justify-between md:justify-end gap-6 md:w-2/3">
+                    <div className="text-left md:text-right">
+                      <span className="text-sm font-semibold text-foreground block">
+                        {formatCurrency(deal.price, deal.currency)}
+                      </span>
+                      <div className="flex items-center gap-1.5 mt-0.5 text-xs">
+                        <span className={cn('h-2 w-2 rounded-full shrink-0', statusDotColor)} />
+                        <span className="font-medium text-foreground">{statusText}</span>
+                      </div>
+                    </div>
+
+                    <div className="text-left md:text-right text-xs">
+                      <span className="text-muted-foreground block font-medium">
+                        {expiryText}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1 text-xs text-accent-brand font-medium group-hover:translate-x-0.5 transition-transform">
+                      <span>Open</span>
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </motion.div>
+
+      {/* SECTION 3 & 4: Recent Activity & Workspace Storage */}
+      <motion.div variants={itemVariants} className="grid gap-6 lg:grid-cols-3">
+        {/* Recent Activity Feed */}
+        <div className="lg:col-span-2 space-y-3">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground/90 flex items-center gap-1.5">
+            <Clock className="h-4 w-4 text-accent-brand" />
+            Recent Activity
+          </h2>
+          <div className="rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xs p-5">
+            {recentEvents.length === 0 ? (
+              <EmptyState
+                icon={Clock}
+                title="No activity recorded"
+                description="Updates will appear here as you and your clients interact in deal workspaces."
+              />
+            ) : (
+              <Timeline events={recentEvents} />
+            )}
+          </div>
+        </div>
+
+        {/* Workspace Storage & Plan Panel */}
+        <div className="space-y-3">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground/90 flex items-center gap-1.5">
+            <HardDrive className="h-4 w-4 text-accent-brand" />
+            Workspace Usage
+          </h2>
+          <div className="rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xs p-5 space-y-4">
+            {/* Storage Provider Status Badge */}
+            <div className="flex items-center justify-between text-xs p-3 rounded-xl bg-muted/30 border border-border/40">
+              <span className="text-muted-foreground">Provider:</span>
+              <span className="font-semibold text-foreground flex items-center gap-1.5">
+                {googleConn ? (
+                  <>
+                    <HardDrive className="h-3.5 w-3.5 text-accent-brand" />
+                    Google Drive Connected
+                  </>
+                ) : (
+                  <>
+                    <Shield className="h-3.5 w-3.5 text-accent-brand" />
+                    DELT Cloud Storage
+                  </>
+                )}
+              </span>
+            </div>
+
+            {/* Usage Meters */}
+            <div className="space-y-3 pt-1">
               <UsageMeter
                 used={store.storage.totalBytes}
                 total={store.storage.limitBytes}
-                label="Storage"
+                label="Storage Space"
                 unit="bytes"
               />
               <UsageMeter
                 used={store.credits.used}
                 total={store.credits.total}
-                label="Deals Remaining"
+                label="Deal Credits Remaining"
                 unit="count"
               />
-            </CardContent>
-          </Card>
+            </div>
+
+            {/* Quick links strip */}
+            <div className="pt-3 border-t border-border/40 flex items-center justify-between text-xs">
+              <Link href="/storage" className="text-muted-foreground hover:text-foreground transition-colors font-medium">
+                Manage Storage →
+              </Link>
+              <Link href="/settings" className="text-muted-foreground hover:text-foreground transition-colors font-medium">
+                Upgrade Plan →
+              </Link>
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

@@ -2,73 +2,73 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Palette, Code2, Film, PenTool, Building2, CheckCircle2, ArrowRight } from 'lucide-react';
+import { Palette, Code2, Film, PenTool, Building2, CheckCircle2, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const DISCIPLINES = [
   {
-    id: 'designer',
-    label: 'Web & UI Designers',
-    icon: Palette,
-    badge: 'Design Deliverables',
-    headline: 'Protect your Figma exports & vector packages.',
-    desc: 'Deliver high-res branding kits, UI prototypes, and design specs with payment-gated locks.',
+    id: 'developer',
+    label: 'Developers',
+    icon: Code2,
+    badge: 'Code & Deliverables',
+    headline: 'Keep scope, revisions, and final delivery in one place.',
+    desc: 'Break client software, web applications, and feature releases into clear agreed milestone deliverables.',
     workflow: [
-      { step: '01', title: 'Figma & Asset Delivery', detail: 'Upload vector packs, brand kits & prototypes in isolated workspace' },
-      { step: '02', title: 'Client Feedback & Revision', detail: 'Structured review threads without buried WhatsApp DMs' },
-      { step: '03', title: 'Escrow Lock Release', detail: 'Assets unlock automatically when client confirms final design approval' },
+      { step: '01', title: 'Agreed Scope', detail: 'Define clear technical requirements and milestone payments upfront' },
+      { step: '02', title: 'Staging & Review', detail: 'Client inspects live staging builds directly in their deal portal' },
+      { step: '03', title: 'Release on Payment', detail: 'Production code and repositories unlock automatically upon approval & payment' },
     ],
   },
   {
-    id: 'developer',
-    label: 'Full-Stack Developers',
-    icon: Code2,
-    badge: 'Code & Deployments',
-    headline: 'Milestone scope tracking for software & web apps.',
-    desc: 'Break project repositories, database schemas, and deployment milestones into clear agreed steps.',
+    id: 'designer',
+    label: 'Designers',
+    icon: Palette,
+    badge: 'UI & Brand Assets',
+    headline: 'Deliver versions and collect structured feedback.',
+    desc: 'Share UI prototypes, brand kits, and design assets with protected preview access.',
     workflow: [
-      { step: '01', title: 'Milestone Scope Definition', detail: 'Agree on API integrations, database schemas, and staging links' },
-      { step: '02', title: 'Code Review & Demo Approval', detail: 'Client inspects live staging environment directly in portal' },
-      { step: '03', title: 'Source Repository Release', detail: 'Production repo access and domain transfer unlocked upon payment' },
+      { step: '01', title: 'Asset Delivery', detail: 'Upload vector packs, brand kits & Figma exports in private workspace' },
+      { step: '02', title: 'Structured Feedback', detail: 'Collect clear design feedback without buried email threads' },
+      { step: '03', title: 'High-Res Unlock', detail: 'Source files unlock automatically when client confirms final approval & payment' },
     ],
   },
   {
     id: 'video',
-    label: 'Video & Motion Editors',
+    label: 'Video Editors',
     icon: Film,
-    badge: 'Media Assets',
-    headline: 'Watermark-free final video delivery upon payment.',
-    desc: 'Share draft renders for timestamped feedback, then lock full 4K final renders until escrow clears.',
+    badge: 'Media Delivery',
+    headline: 'Keep large deliverables organized while tracking approval.',
+    desc: 'Share draft cuts for feedback, then keep final 4K master renders protected until payment clears.',
     workflow: [
-      { step: '01', title: 'Draft Render Preview', detail: 'Client reviews draft cuts with frame-accurate timestamp notes' },
-      { step: '02', title: 'Revision Iteration', detail: 'Track v1, v2, and final render versions with complete change logs' },
-      { step: '03', title: '4K ProRes Release', detail: 'Master video files unlock instantly when final payment clears' },
+      { step: '01', title: 'Draft Preview', detail: 'Share watermarked draft cuts for client review' },
+      { step: '02', title: 'Revision History', detail: 'Track v1, v2, and final cuts with clear feedback records' },
+      { step: '03', title: 'Master File Release', detail: 'Full-resolution video downloads unlock instantly when final payment clears' },
     ],
   },
   {
     id: 'writer',
-    label: 'Copywriters & Authors',
+    label: 'Consultants & Writers',
     icon: PenTool,
-    badge: 'Editorial & Copy',
-    headline: 'Clear revision limits & copy sign-offs.',
-    desc: 'Manage content drafts, brand messaging frameworks, and SEO copy without endless revision scope creep.',
+    badge: 'Content & Strategy',
+    headline: 'Prevent scope creep and maintain revision limits.',
+    desc: 'Manage strategic copy, brand frameworks, and editorial deliverables with defined revision bounds.',
     workflow: [
-      { step: '01', title: 'Draft Submission', detail: 'Share structured copy docs with defined revision limits' },
-      { step: '02', title: 'Feedback & Signoff', detail: 'Client approves copy blocks in a permanent audit log' },
-      { step: '03', title: 'Final Copy Unlock', detail: 'Final publication rights and raw files unlocked upon completion' },
+      { step: '01', title: 'Scope Definition', detail: 'Share structured deliverables with explicit revision limits' },
+      { step: '02', title: 'Client Sign-Off', detail: 'Client approves content sections in a permanent record' },
+      { step: '03', title: 'Final Deliverable Unlock', detail: 'Publication rights and final strategy documents released upon payment' },
     ],
   },
   {
     id: 'agency',
     label: 'Agencies & Studios',
     icon: Building2,
-    badge: 'Multi-Client Operations',
-    headline: 'Unified deal workspace for retainer & project clients.',
-    desc: 'Manage multiple concurrent client deals with team permissions, audit logs, and automated payouts.',
+    badge: 'Client Workspaces',
+    headline: 'Unified deal workspaces for every client project.',
+    desc: 'Manage multiple client deals with clear progress tracking, audit records, and automated payouts.',
     workflow: [
-      { step: '01', title: 'Multi-Role Deal Portal', detail: 'Invite project managers, creators, and client stakeholders' },
-      { step: '02', title: 'Transparent Retainer Billing', detail: 'Track monthly deal credits and escrow deposits automatically' },
-      { step: '03', title: 'Immutable Studio Audit', detail: 'Complete financial and operational history for every client relationship' },
+      { step: '01', title: 'Client Portal', detail: 'Send private, OTP-authenticated deal links to clients' },
+      { step: '02', title: 'Structured Milestone Approval', detail: 'Track milestone approvals and payment status in real time' },
+      { step: '03', title: 'Studio Activity History', detail: 'Maintain clean financial and operational records for all client work' },
     ],
   },
 ];
@@ -77,12 +77,12 @@ export function DisciplinesSection() {
   const [activeIdx, setActiveIdx] = useState<number>(0);
   const [isPaused, setIsPaused] = useState<boolean>(false);
 
-  // Auto-cycle every 5s unless hovered/clicked
+  // Auto-cycle every 6s unless hovered/clicked
   useEffect(() => {
     if (isPaused) return;
     const timer = setInterval(() => {
       setActiveIdx((prev) => (prev + 1) % DISCIPLINES.length);
-    }, 5000);
+    }, 6000);
     return () => clearInterval(timer);
   }, [isPaused]);
 
@@ -100,14 +100,15 @@ export function DisciplinesSection() {
             viewport={{ once: true, margin: '-80px' }}
             transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
           >
-            <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3 font-semibold">
-              Engineered for Digital Creators
-            </p>
-            <h2 className="text-balance text-3xl font-display font-semibold tracking-tight sm:text-4xl">
-              Custom workflows for every digital discipline.
+            <div className="inline-flex items-center gap-2 text-xs font-semibold text-accent-brand mb-3">
+              <Users className="h-3.5 w-3.5" />
+              <span>Built for Independent Creators</span>
+            </div>
+            <h2 className="text-balance text-3xl font-display font-semibold tracking-tight sm:text-4xl text-foreground">
+              Workflows tailored to your discipline.
             </h2>
             <p className="mt-4 text-muted-foreground leading-relaxed text-sm sm:text-base">
-              Select your discipline to see how DELT secures your deliverables and payment workflow.
+              Select your creative discipline to see how DELT protects your client deliverables and payment workflow.
             </p>
           </motion.div>
         </div>
@@ -129,7 +130,7 @@ export function DisciplinesSection() {
                   setIsPaused(true);
                 }}
                 className={cn(
-                  'relative flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-mono font-medium transition-colors cursor-pointer',
+                  'relative flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-colors cursor-pointer',
                   isActive ? 'text-foreground font-bold' : 'text-muted-foreground hover:text-foreground'
                 )}
               >
@@ -140,14 +141,14 @@ export function DisciplinesSection() {
                     transition={{ type: 'spring', stiffness: 420, damping: 32 }}
                   />
                 )}
-                <DIcon className={cn('relative z-10 h-4 w-4', isActive ? 'text-amber-500' : 'text-muted-foreground')} />
+                <DIcon className={cn('relative z-10 h-4 w-4', isActive ? 'text-accent-brand' : 'text-muted-foreground')} />
                 <span className="relative z-10">{d.label}</span>
               </button>
             );
           })}
         </div>
 
-        {/* Interactive Content Card */}
+        {/* Content Card */}
         <div
           onMouseEnter={() => setIsPaused(true)}
           onMouseLeave={() => setIsPaused(false)}
@@ -164,15 +165,15 @@ export function DisciplinesSection() {
             >
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/40 pb-4">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/20">
-                    <Icon className="h-5 w-5 text-amber-500" />
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-brand/10 border border-accent-brand/20">
+                    <Icon className="h-5 w-5 text-accent-brand" />
                   </div>
                   <div>
                     <h3 className="text-xl font-semibold text-foreground">{current.headline}</h3>
                     <p className="text-xs text-muted-foreground mt-0.5">{current.desc}</p>
                   </div>
                 </div>
-                <span className="font-mono text-xs font-bold px-3 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                <span className="text-xs font-semibold px-3 py-1 rounded-full bg-accent-brand/10 text-accent-brand border border-accent-brand/20">
                   {current.badge}
                 </span>
               </div>
@@ -182,7 +183,7 @@ export function DisciplinesSection() {
                 {current.workflow.map((w) => (
                   <div key={w.step} className="rounded-xl border border-border/60 bg-muted/20 p-4 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="font-mono text-xs font-bold text-amber-500">
+                      <span className="text-xs font-semibold text-accent-brand">
                         STEP {w.step}
                       </span>
                       <CheckCircle2 className="h-4 w-4 text-emerald-500" />

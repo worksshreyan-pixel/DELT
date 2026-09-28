@@ -66,7 +66,12 @@ export const STANDARD_TEMPLATES: DealTemplate[] = [
       'CMS integration and SEO configuration',
       'Testing, deployment & handoff',
     ],
-    deliverables: ['Production Website Code', 'CMS Admin Credentials', 'Documentation'],
+    deliverables: [
+      'Requirements & design system review',
+      'Responsive web development (desktop & mobile)',
+      'CMS integration and SEO configuration',
+      'Testing, deployment & handoff',
+    ],
     usageCount: 0,
     createdAt: '2025-01-01T00:00:00Z',
   },
@@ -84,7 +89,12 @@ export const STANDARD_TEMPLATES: DealTemplate[] = [
       'Lead capture form & CRM / email integration',
       'Speed optimization & launch checklist',
     ],
-    deliverables: ['Live Landing Page', 'Asset Exports', 'Analytics Integration'],
+    deliverables: [
+      'Conversion copywriting & structure review',
+      'Modern responsive page implementation',
+      'Lead capture form & CRM / email integration',
+      'Speed optimization & launch checklist',
+    ],
     usageCount: 0,
     createdAt: '2025-01-01T00:00:00Z',
   },
@@ -102,7 +112,12 @@ export const STANDARD_TEMPLATES: DealTemplate[] = [
       'Color palette & typography pairing system',
       'Comprehensive brand guideline deck (PDF)',
     ],
-    deliverables: ['Vector Logo Package (SVG, EPS, PNG)', 'Brand Style Guide (PDF)', 'Social Media Kit'],
+    deliverables: [
+      'Brand discovery & moodboard direction',
+      'Logo design with primary, secondary & icon variations',
+      'Color palette & typography pairing system',
+      'Comprehensive brand guideline deck (PDF)',
+    ],
     usageCount: 0,
     createdAt: '2025-01-01T00:00:00Z',
   },
@@ -120,7 +135,12 @@ export const STANDARD_TEMPLATES: DealTemplate[] = [
       'Motion graphics, subtitles & titles',
       'Revisions & final format exports (16:9 & 9:16)',
     ],
-    deliverables: ['Master 4K Export', 'Social Media Cuts (9:16)', 'Project Archive'],
+    deliverables: [
+      'Footage ingest & narrative assembly cut',
+      'Color grading, sound design & background music mix',
+      'Motion graphics, subtitles & titles',
+      'Revisions & final format exports (16:9 & 9:16)',
+    ],
     usageCount: 0,
     createdAt: '2025-01-01T00:00:00Z',
   },
@@ -138,7 +158,12 @@ export const STANDARD_TEMPLATES: DealTemplate[] = [
       'Design system components & auto-layout tokens',
       'Developer handoff review & asset exports',
     ],
-    deliverables: ['Interactive Figma File', 'Design System Library', 'Handoff Documentation'],
+    deliverables: [
+      'User journey mapping & information architecture',
+      'High-fidelity interactive prototype in Figma',
+      'Design system components & auto-layout tokens',
+      'Developer handoff review & asset exports',
+    ],
     usageCount: 0,
     createdAt: '2025-01-01T00:00:00Z',
   },
@@ -163,6 +188,8 @@ export interface AppStoreData {
   user: {
     id: string;
     displayName: string;
+    username?: string;
+    avatarUrl?: string;
     email: string;
     profession?: string;
     company?: string;
@@ -202,6 +229,7 @@ export const INITIAL_STORE_STATE: AppStoreData = {
   user: {
     id: '',
     displayName: 'Your Account',
+    username: 'creator',
     email: '',
     profession: 'Digital Creator',
   },
@@ -286,14 +314,21 @@ export function clearStoreState() {
 /**
  * Sets active user and loads user-specific store.
  */
-export function setStoreUser(user: { id: string; email: string; displayName: string }) {
-  if (activeUserId !== user.id) {
+export function setStoreUser(user: { id: string; email: string; displayName: string; username?: string; avatarUrl?: string }) {
+  if (
+    activeUserId !== user.id ||
+    currentStoreState.user.username !== user.username ||
+    currentStoreState.user.avatarUrl !== user.avatarUrl
+  ) {
     activeUserId = user.id;
     loadStoreForUser(user.id);
     currentStoreState.user = {
+      ...currentStoreState.user,
       id: user.id,
       email: user.email,
       displayName: user.displayName,
+      username: user.username,
+      avatarUrl: user.avatarUrl,
     };
     notifyListeners();
   }

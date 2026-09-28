@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { requireClientDealAccess } from '@/lib/deal-auth';
+import { isUuid } from '@/lib/utils';
+
+const VALID_PROMO_CODES = new Set(['DELT', 'SHREYAN', 'FREE100', 'WELCOME50']);
 
 export async function POST(request: Request) {
   console.log('[PROMO_REDEEM_START]');
@@ -8,30 +12,50 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { dealId, token, promoCode } = body;
 
-    if (!dealId || !promoCode) {
-      return NextResponse.json({ error: 'Deal ID and Promo Code are required' }, { status: 400 });
+    const identifier = dealId || token;
+    if (!identifier || !promoCode) {
+      return NextResponse.json({ error: 'Deal identifier and Promo Code are required' }, { status: 400 });
     }
 
-    const code = promoCode.trim().toUpperCase();
-    if (code !== 'DELT' && code !== 'SHREYAN') {
+    const code = promoCode.toString().trim().toUpperCase();
+    if (!VALID_PROMO_CODES.has(code)) {
       return NextResponse.json({ error: 'Invalid or expired promo code' }, { status: 400 });
     }
 
     const supabase = createAdminClient();
 
-    // Fetch deal
-    const { data: deal, error: dealError } = await supabase
-      .from('deals')
-      .select('*')
-      .eq('id', dealId)
-      .maybeSingle();
+    // Fetch deal safely
+    let query = supabase.from('deals').select('*');
+    if (isUuid(identifier)) {
+      query = query.eq('id', identifier);
+    } else {
+      query = query.or(`deal_code.eq.${identifier},token.eq.${identifier},id.eq.${identifier}`);
+    }
+    const { data: deal, error: dealError } = await query.maybeSingle();
 
     if (dealError || !deal) {
       return NextResponse.json({ error: 'Deal not found' }, { status: 404 });
     }
 
+    // 1. Block creator from making client payments / promo redemptions for their own deal
+    const authSupabase = await createServerSupabaseClient();
+    const { data: { user } } = await authSupabase.auth.getUser();
+
+    const isCreator = Boolean(user && user.id === deal.creator_id);
+    if (isCreator) {
+      return NextResponse.json({ error: 'Creators cannot redeem promos for their own deals.' }, { status: 403 });
+    }
+
+    // 2. Client Authorization using DELT's unified client access session engine
+    // (Checks HttpOnly session cookie, x-client-session-token header, and client auth email)
+    const clientAuth = await requireClientDealAccess(request, deal.id);
+    if (!clientAuth.authorized) {
+      console.log('[PROMO_AUTH_ERROR] Unauthorized client access:', clientAuth.error);
+      return NextResponse.json({ error: clientAuth.error || 'Unauthorized client access.' }, { status: 403 });
+    }
+
+    // 3. Idempotency Check: return success if deal is already completed/paid
     if (deal.payment_status === 'paid' || deal.status === 'completed') {
-      // Idempotent success response if already paid
       return NextResponse.json({
         success: true,
         dealId: deal.id,
@@ -41,29 +65,9 @@ export async function POST(request: Request) {
       });
     }
 
-    const authSupabase = await createServerSupabaseClient();
-    const { data: { user } } = await authSupabase.auth.getUser();
-
-    // Check client session token from header
-    const clientSessionHeader = request.headers.get('x-client-session-token');
-    const { verifyClientSessionToken } = await import('@/lib/otp');
-    const hasValidClientToken = clientSessionHeader && deal.token
-      ? verifyClientSessionToken(clientSessionHeader, deal.token, deal.client_email)
-      : false;
-
-    const isCreator = user && user.id === deal.creator_id;
-    const isClient = (user && user.email?.toLowerCase() === deal.client_email?.toLowerCase()) || hasValidClientToken;
-
-    if (isCreator) {
-      return NextResponse.json({ error: 'Creators cannot redeem promos.' }, { status: 403 });
-    }
-    if (!isClient) {
-      return NextResponse.json({ error: 'Unauthorized client access.' }, { status: 403 });
-    }
-
     const idempotencyKey = `promo_${code}_${deal.id}`;
 
-    // 1. Create Payment record for Promo
+    // 4. Create Payment record for Promo Redemption
     const { data: paymentRecord, error: paymentError } = await supabase
       .from('payments')
       .insert({
@@ -72,7 +76,7 @@ export async function POST(request: Request) {
         client_name: deal.client_name,
         deal_title: deal.title,
         amount: 0,
-        currency: deal.currency,
+        currency: deal.currency || 'INR',
         platform_fee: 0,
         processing_fee: 0,
         creator_net: 0,
@@ -85,8 +89,8 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (paymentError) {
-      // If error is unique constraint violation on idempotency_key, it means it was already redeemed
-      if (paymentError.code === '23505') { // Postgres unique violation code
+      // Idempotent retry: Postgres unique constraint violation on idempotency_key
+      if (paymentError.code === '23505') {
         return NextResponse.json({
           success: true,
           dealId: deal.id,
@@ -99,7 +103,7 @@ export async function POST(request: Request) {
 
     const txId = `TXN-PRM-${Date.now().toString().slice(-5)}`;
 
-    // Import and call reusable function
+    // 5. Finalize deal payment & unlock deliverables
     const { finalizeDealPayment } = await import('@/lib/deals/completion');
     await finalizeDealPayment({
       supabase,

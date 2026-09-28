@@ -21,3 +21,8 @@ export function parseDescription(description: string | null | undefined): { desc
 function stripMetadata(text: string): string {
   return text.replace(/\n*\[DELT_SETTINGS:[^\]]+\]/g, '').trim();
 }
+
+export function isUuid(str: string | null | undefined): boolean {
+  if (!str || typeof str !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
+}

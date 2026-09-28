@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { DealWorkspace } from '@/components/deal-workspace';
-import { Breadcrumb } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
 import { FolderKanban } from 'lucide-react';
 import { useAppStore } from '@/lib/app-store';
@@ -30,6 +29,7 @@ export default function DealDetailPage() {
   const [payments, setPayments] = useState<Payment[]>(() => store.payments[actualDealId] || []);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
+  const [contractRecord, setContractRecord] = useState<any>(null);
   const [loading, setLoading] = useState(!deal);
 
   useEffect(() => {
@@ -89,15 +89,20 @@ export default function DealDetailPage() {
 
         if (currentDeal) {
           const fetchedId = currentDeal.id;
-          const [dbMsgs, dbProps, dbDelivs, dbVersions, dbEvents, dbInvoicesRaw, dbMilestones] = await Promise.all([
+          const [dbMsgs, dbProps, dbDelivs, dbVersions, dbEvents, dbInvoicesRaw, dbMilestones, dbContract] = await Promise.all([
             supabase.from('deal_messages').select('*').eq('deal_id', fetchedId).order('created_at', { ascending: true }),
             supabase.from('price_proposals').select('*').eq('deal_id', fetchedId).order('created_at', { ascending: true }),
             supabase.from('deliverables').select('*').eq('deal_id', fetchedId),
             supabase.from('file_versions').select('*').eq('deal_id', fetchedId).order('version', { ascending: true }),
             supabase.from('deal_events').select('*').eq('deal_id', fetchedId).order('created_at', { ascending: false }),
             supabase.from('invoices').select('*, creator:profiles(*)').eq('deal_id', fetchedId).neq('status', 'draft').order('created_at', { ascending: false }),
-            supabase.from('milestones').select('*').eq('deal_id', fetchedId).order('order', { ascending: true })
+            supabase.from('milestones').select('*').eq('deal_id', fetchedId).order('order', { ascending: true }),
+            supabase.from('deal_contracts').select('*').eq('deal_id', fetchedId).maybeSingle()
           ]);
+
+          if (dbContract?.data) {
+            setContractRecord(dbContract.data);
+          }
 
           let fetchedInvoices = dbInvoicesRaw.data || [];
 
@@ -367,7 +372,6 @@ export default function DealDetailPage() {
 
   return (
     <div className="space-y-4">
-      <Breadcrumb items={[{ label: 'Deals', href: '/deals' }, { label: deal.title }]} />
       <DealWorkspace
         deal={deal}
         clientName={clientName}
@@ -383,6 +387,8 @@ export default function DealDetailPage() {
         payments={payments}
         changeRequests={[]}
         invoices={invoices}
+        contract={contractRecord}
+        hasAgreement={Boolean(contractRecord || (deal as any).createAgreement)}
       />
     </div>
   );

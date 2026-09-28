@@ -28,9 +28,10 @@ import {
   X,
 } from 'lucide-react';
 import { Logo } from '@/components/logo';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { OtpCodeSlots } from '@/components/ui/otp-code-slots';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
@@ -40,17 +41,18 @@ import { DealStatusBadge, PaymentStatusBadge, DeliverableStatusBadge } from '@/c
 import { PriceProposalCard } from '@/components/price-proposal-card';
 import { ChatMessageItem } from '@/components/chat-message';
 import { FileCard } from '@/components/file-card';
-import { Timeline } from '@/components/timeline-event';
 import { InvoicePreview } from '@/components/invoices/invoice-preview';
 import { EmptyState } from '@/components/empty-state';
 import { ScopeMilestones } from '@/components/scope-milestones';
-import { DealCard } from '@/components/deal/deal-card';
 import { formatCurrency } from '@/lib/plans';
 import { createClient } from '@/lib/supabase/client';
 import { printWithFilename } from '@/lib/print-utils';
+import { getCanonicalDeliverables } from '@/lib/deals/canonical-deliverables';
+import { isUsablePreviewAvailable } from '@/lib/preview-utils';
 import { hasSupabasePublicConfig } from '@/lib/env';
 import { addMessageToStore, addProposalToStore, respondToProposalInStore, simulatePaymentInStore } from '@/lib/app-store';
 import { cn } from '@/lib/utils';
+import { ClientContractPanel } from '@/components/contract/client-contract-panel';
 import type { Deal, DealMessage, PriceProposal, DealEvent, Deliverable, FileVersion, Payment, Milestone } from '@/lib/types';
 
 function loadRazorpayScript(): Promise<boolean> {
@@ -85,7 +87,6 @@ export default function ClientDealPage() {
   const [dealMeta, setDealMeta] = useState<{ title?: string; clientEmail?: string; creatorName?: string } | null>(null);
   const [dealNotFound, setDealNotFound] = useState(false);
   const [loadingDeal, setLoadingDeal] = useState(true);
-  const [viewerRole, setViewerRole] = useState<'client' | 'creator'>('client');
   const [creatorName, setCreatorName] = useState('Creator');
   const [verified, setVerified] = useState(false);
   const [email, setEmail] = useState('');
@@ -96,7 +97,6 @@ export default function ClientDealPage() {
   const [error, setError] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const [cooldown, setCooldown] = useState(0);
-  const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
   const isSendingRef = useRef(false);
   const isVerifyingRef = useRef(false);
 
@@ -140,7 +140,6 @@ export default function ClientDealPage() {
           setDeal(json.deal);
           setCreatorName(json.creatorName || json.deal.creatorName || 'Creator');
           setEmail(json.clientEmail || json.deal.clientEmail || '');
-          setViewerRole(json.role || 'client');
           setVerified(true);
         } else {
           setDealMeta({
@@ -219,7 +218,6 @@ export default function ClientDealPage() {
       setOtp(['', '', '', '', '', '']);
       setCooldown(30);
       setStatusMessage(`Code sent to ${targetEmail}`);
-      setTimeout(() => otpRefs.current[0]?.focus(), 150);
     } catch (e: any) {
       console.error('OTP request error:', e);
       setError('Unable to send the verification email. Please try again.');
@@ -275,7 +273,6 @@ export default function ClientDealPage() {
       if (serverVerifyJson.creatorName || serverVerifyJson.deal?.creatorName) {
         setCreatorName(serverVerifyJson.creatorName || serverVerifyJson.deal.creatorName);
       }
-      setViewerRole('client');
       setVerified(true);
     } catch (e: any) {
       console.error('OTP verification error:', e);
@@ -315,40 +312,6 @@ export default function ClientDealPage() {
     }
   }
 
-  function handleOtpChange(idx: number, value: string) {
-    if (!/^\d?$/.test(value)) return;
-    const newOtp = [...otp];
-    newOtp[idx] = value;
-    setOtp(newOtp);
-    if (value && idx < 5) otpRefs.current[idx + 1]?.focus();
-    if (value && idx === 5 && newOtp.every((d) => d !== '')) {
-      setTimeout(() => handleVerifyOtp(newOtp.join('')), 50);
-    }
-  }
-
-  function handleOtpKeyDown(idx: number, e: React.KeyboardEvent) {
-    if (e.key === 'Backspace' && !otp[idx] && idx > 0) {
-      otpRefs.current[idx - 1]?.focus();
-    }
-  }
-
-  function handleOtpPaste(e: React.ClipboardEvent<HTMLInputElement>) {
-    e.preventDefault();
-    const pasted = e.clipboardData.getData('text').trim();
-    if (!pasted) return;
-    const digits = pasted.replace(/\D/g, '').slice(0, 6).split('');
-    if (digits.length === 0) return;
-    const newOtp = [...otp];
-    digits.forEach((d, i) => {
-      newOtp[i] = d;
-    });
-    setOtp(newOtp);
-    const focusIdx = Math.min(digits.length, 5);
-    otpRefs.current[focusIdx]?.focus();
-    if (digits.length === 6) {
-      setTimeout(() => handleVerifyOtp(newOtp.join('')), 100);
-    }
-  }
 
   if (loadingDeal) {
     return (
@@ -455,22 +418,15 @@ export default function ClientDealPage() {
                           </div>
                         )}
 
-                        <div className="flex justify-center gap-2">
-                          {otp.map((digit, i) => (
-                            <Input
-                              key={i}
-                              ref={(el) => { otpRefs.current[i] = el; }}
-                              type="text"
-                              inputMode="numeric"
-                              maxLength={1}
-                              className="h-12 w-12 text-center text-lg font-semibold"
-                              value={digit}
-                              onChange={(e) => handleOtpChange(i, e.target.value)}
-                              onKeyDown={(e) => handleOtpKeyDown(i, e)}
-                              onPaste={handleOtpPaste}
-                            />
-                          ))}
-                        </div>
+                        <OtpCodeSlots
+                          length={6}
+                          value={otp}
+                          onChange={setOtp}
+                          onComplete={(code) => handleVerifyOtp(code)}
+                          disabled={verifying}
+                          isLoading={verifying}
+                          status={verified ? 'success' : error ? 'error' : 'idle'}
+                        />
 
                         {error && (
                           <div className="flex items-start gap-2 rounded-lg bg-destructive/10 p-2.5 text-xs text-destructive">
@@ -520,9 +476,87 @@ export default function ClientDealPage() {
       clientEmail={email}
       clientName={(deal as any).clientName || (deal as any).client_name || 'Client'}
       creatorName={creatorName}
-      viewerRole={viewerRole}
       urlToken={token}
     />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Client Needs Attention Banner
+// ---------------------------------------------------------------------------
+
+function ClientNeedsAttentionBanner({
+  deal,
+  fileVersions,
+  deliverables,
+  invoices,
+  onNavigateTab,
+}: {
+  deal: Deal;
+  fileVersions: FileVersion[];
+  deliverables: Deliverable[];
+  invoices: any[];
+  onNavigateTab: (tab: string) => void;
+}) {
+  const pendingReviews = fileVersions.filter((fv) => fv.status === 'pending_review');
+  const changesRequested = deliverables.filter((d) => d.status === 'changes_requested');
+  const isPaymentPending = deal.status === 'payment_pending' || (deal.paymentStatus !== 'paid' && deal.paymentStatus !== 'none');
+  const unpaidInvoice = invoices.find((i) => i.status === 'sent' || i.status === 'overdue' || i.status === 'issued' || i.status === 'viewed');
+
+  if (pendingReviews.length > 0) {
+    return (
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-amber-500/20 bg-amber-500/5 dark:bg-amber-500/10 text-xs">
+        <div className="flex items-center gap-3">
+          <AlertCircle className="h-5 w-5 text-amber-500 shrink-0" />
+          <div>
+            <p className="font-semibold text-foreground text-sm">Your files are ready for review</p>
+            <p className="text-muted-foreground">{pendingReviews.length} {pendingReviews.length === 1 ? 'file is' : 'files are'} awaiting your review and approval.</p>
+          </div>
+        </div>
+        <Button size="sm" className="shrink-0 h-8 gap-1.5" onClick={() => onNavigateTab('files')}>
+          Review Files →
+        </Button>
+      </div>
+    );
+  }
+
+  if (changesRequested.length > 0) {
+    return (
+      <div className="flex items-center gap-3 p-4 rounded-xl border border-blue-500/20 bg-blue-500/5 dark:bg-blue-500/10 text-xs">
+        <Clock className="h-5 w-5 text-blue-500 shrink-0" />
+        <div>
+          <p className="font-semibold text-foreground text-sm">Changes requested</p>
+          <p className="text-muted-foreground">Your creator is working on updating the requested revisions.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (unpaidInvoice || (isPaymentPending && deliverables.some((d) => d.status === 'approved'))) {
+    return (
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-amber-500/20 bg-amber-500/5 dark:bg-amber-500/10 text-xs">
+        <div className="flex items-center gap-3">
+          <CreditCard className="h-5 w-5 text-amber-500 shrink-0" />
+          <div>
+            <p className="font-semibold text-foreground text-sm">Payment is due</p>
+            <p className="text-muted-foreground">Complete payment to unlock high-resolution deliverable downloads.</p>
+          </div>
+        </div>
+        <Button size="sm" className="shrink-0 h-8 gap-1.5" onClick={() => onNavigateTab('overview')}>
+          Pay Now →
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-3 p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 text-xs">
+      <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
+      <div>
+        <p className="font-semibold text-foreground text-sm">Everything is up to date</p>
+        <p className="text-muted-foreground">No action is required from you right now.</p>
+      </div>
+    </div>
   );
 }
 
@@ -535,17 +569,16 @@ function ClientPortal({
   clientEmail,
   clientName,
   creatorName,
-  viewerRole = 'client',
   urlToken,
 }: {
   deal: Deal;
   clientEmail: string;
   clientName: string;
   creatorName: string;
-  viewerRole?: 'client' | 'creator';
   urlToken: string;
 }) {
   const [currentDeal, setCurrentDeal] = useState<Deal>(deal);
+  const [activeTab, setActiveTab] = useState('overview');
   const [messages, setMessages] = useState<DealMessage[]>([]);
   const [proposals, setProposals] = useState<PriceProposal[]>([]);
   const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
@@ -554,9 +587,8 @@ function ClientPortal({
   const [payments, setPayments] = useState<Payment[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
+  const [contractRecord, setContractRecord] = useState<any>(null);
   const [clientSessionChecked, setClientSessionChecked] = useState(false);
-
-  const isReadOnly = viewerRole === 'creator';
 
   const [input, setInput] = useState('');
   const [proposalOpen, setProposalOpen] = useState(false);
@@ -586,8 +618,41 @@ function ClientPortal({
   const [previewFileName, setPreviewFileName] = useState('');
   const [previewLoadingFileId, setPreviewLoadingFileId] = useState<string | null>(null);
 
+  // Review & Approval state
+  const [approveModalOpen, setApproveModalOpen] = useState(false);
+  const [activeApproveDeliverable, setActiveApproveDeliverable] = useState<Deliverable | null>(null);
+  const [approving, setApproving] = useState(false);
+  const [approveError, setApproveError] = useState('');
+
+  const [requestingChanges, setRequestingChanges] = useState(false);
+  const [changeRequestError, setChangeRequestError] = useState('');
+  const [expandedVersions, setExpandedVersions] = useState<Record<string, boolean>>({});
+  const [paymentError, setPaymentError] = useState('');
+
   const isClosed = currentDeal.status === 'closed';
   const isPaid = currentDeal.paymentStatus === 'paid' || currentDeal.status === 'completed';
+  const activeInvoice = invoices.find(i => i.status !== 'draft');
+
+  // Authoritative feature-conditional flags
+  const hasAgreement = Boolean(
+    contractRecord ||
+    (currentDeal as any).createAgreement ||
+    events.some((e) => (e.type as string) === 'contract_created' || (e.type as string) === 'contract_sent' || (e.type as string) === 'contract_accepted')
+  );
+  const hasMilestones = Boolean(milestones && milestones.length > 0);
+  const hasInvoice = Boolean(invoices && invoices.length > 0);
+
+  // Auto-fallback activeTab if on a removed or disabled tab
+  useEffect(() => {
+    if (activeTab === 'payment' || activeTab === 'payments') {
+      setActiveTab('overview');
+    } else if (activeTab === 'agreement' && !hasAgreement) {
+      setActiveTab('overview');
+    }
+  }, [activeTab, hasAgreement]);
+
+  // Single canonical source of truth for deliverables (deal.scope + deliverables DB table)
+  const effectiveDeliverables: Deliverable[] = getCanonicalDeliverables(currentDeal, deliverables, fileVersions);
 
   // Load deliverable files & messages from Supabase (Single, stable effect on mount)
   useEffect(() => {
@@ -693,6 +758,12 @@ function ClientPortal({
         })));
       }
 
+      // Contracts / Agreement
+      const { data: dbContract } = await supabase.from('deal_contracts').select('*').eq('deal_id', deal.id).maybeSingle();
+      if (dbContract) {
+        setContractRecord(dbContract);
+      }
+
       // Invoices
       const { data: dbInvoices } = await supabase.from('invoices').select('*, creator:profiles(*)').eq('deal_id', deal.id).neq('status', 'draft').order('created_at', { ascending: false });
       if (dbInvoices && dbInvoices.length > 0) {
@@ -790,6 +861,7 @@ function ClientPortal({
           setCurrentDeal((prev) => ({
             ...prev,
             ...updated,
+            scope: updated.scope !== undefined ? (Array.isArray(updated.scope) ? updated.scope : []) : prev.scope,
             paymentStatus: updated.payment_status || prev.paymentStatus,
             lastActivityAt: updated.last_activity_at || prev.lastActivityAt,
           }));
@@ -805,8 +877,10 @@ function ClientPortal({
         (payload) => {
           const raw = payload.new as any;
           if (payload.eventType === 'DELETE') {
-            const oldId = (payload.old as any).id;
-            setMilestones((prev) => prev.filter((m) => m.id !== oldId));
+            const oldId = (payload.old as any)?.id;
+            if (oldId) {
+              setMilestones((prev) => prev.filter((m) => m.id !== oldId));
+            }
           } else {
             const formatted: Milestone = {
               id: raw.id,
@@ -837,22 +911,29 @@ function ClientPortal({
         'postgres_changes',
         { event: '*', schema: 'public', table: 'deliverables', filter: `deal_id=eq.${deal.id}` },
         (payload) => {
-          const raw = payload.new as any;
-          const updatedDel: Deliverable = {
-            id: raw.id,
-            dealId: raw.deal_id || raw.dealId,
-            name: raw.name,
-            description: raw.description,
-            status: raw.status,
-            createdAt: raw.created_at || raw.createdAt,
-          };
-          setDeliverables((prev) => {
-            const exists = prev.some((d) => d.id === updatedDel.id);
-            if (exists) {
-              return prev.map((d) => (d.id === updatedDel.id ? updatedDel : d));
+          if (payload.eventType === 'DELETE') {
+            const oldId = (payload.old as any)?.id;
+            if (oldId) {
+              setDeliverables((prev) => prev.filter((d) => d.id !== oldId));
             }
-            return [...prev, updatedDel];
-          });
+          } else if (payload.new) {
+            const raw = payload.new as any;
+            const updatedDel: Deliverable = {
+              id: raw.id,
+              dealId: raw.deal_id || raw.dealId,
+              name: raw.name,
+              description: raw.description,
+              status: raw.status,
+              createdAt: raw.created_at || raw.createdAt,
+            };
+            setDeliverables((prev) => {
+              const exists = prev.some((d) => d.id === updatedDel.id);
+              if (exists) {
+                return prev.map((d) => (d.id === updatedDel.id ? updatedDel : d));
+              }
+              return [...prev, updatedDel];
+            });
+          }
         }
       )
       .on(
@@ -888,6 +969,28 @@ function ClientPortal({
       supabase.removeChannel(channel);
     };
   }, [deal.id]);
+
+  useEffect(() => {
+    const issuedInvoice = invoices.find((i) => i.status === 'issued' || i.status === 'sent');
+    if (issuedInvoice) {
+      const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${urlToken}`) : null;
+      fetch(`/api/invoices/${issuedInvoice.id}/client-view`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(savedToken ? { 'x-client-session-token': savedToken } : {}),
+        },
+        body: JSON.stringify({ dealToken: urlToken }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && data.invoice) {
+            setInvoices((prev) => prev.map((inv) => (inv.id === data.invoice.id ? { ...inv, status: 'viewed' } : inv)));
+          }
+        })
+        .catch((err) => console.error('Error tracking invoice view:', err));
+    }
+  }, [invoices, urlToken]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -1133,25 +1236,49 @@ function ClientPortal({
     }
   }
 
-  async function handleApproveDeliverables(deliverableId: string) {
+  function handleOpenApproveModal(del: Deliverable) {
+    setActiveApproveDeliverable(del);
+    setApproveError('');
+    setApproveModalOpen(true);
+  }
+
+  async function confirmApproveDeliverable() {
+    if (!activeApproveDeliverable) return;
+    setApproving(true);
+    setApproveError('');
     try {
+      const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${urlToken}`) : null;
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (savedToken) headers['x-client-session-token'] = savedToken;
+
       const res = await fetch('/api/deliverables/approve', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           dealId: currentDeal.id,
           dealCode: currentDeal.dealCode || urlToken,
-          deliverableId,
+          deliverableId: activeApproveDeliverable.id,
           action: 'approve',
           clientName,
         }),
       });
-      if (!res.ok) throw new Error(await res.text());
-      setDeliverables((prev) => prev.map((d) => (d.id === deliverableId ? { ...d, status: 'approved' } : d)));
-      setFileVersions((prev) => prev.map((v) => (v.deliverableId === deliverableId ? { ...v, status: 'approved', locked: false } : v)));
-      alert('Deliverable approved!');
-    } catch (e) {
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setApproveError(data.error || 'Failed to approve deliverable.');
+        setApproving(false);
+        return;
+      }
+
+      setDeliverables((prev) => prev.map((d) => (d.id === activeApproveDeliverable.id ? { ...d, status: 'approved' } : d)));
+      setFileVersions((prev) => prev.map((v) => (v.deliverableId === activeApproveDeliverable.id ? { ...v, status: 'approved', locked: false } : v)));
+      setApproveModalOpen(false);
+      setActiveApproveDeliverable(null);
+    } catch (e: any) {
       console.error(e);
+      setApproveError(e?.message || 'Network error approving deliverable.');
+    } finally {
+      setApproving(false);
     }
   }
 
@@ -1220,40 +1347,61 @@ function ClientPortal({
   async function handleRequestChanges(e: React.FormEvent) {
     e.preventDefault();
     if (!activeDeliverableId) return;
+    const feedbackText = changeFeedback.trim();
+    if (!feedbackText) {
+      setChangeRequestError('Please specify what needs to be revised.');
+      return;
+    }
+
+    setRequestingChanges(true);
+    setChangeRequestError('');
     try {
+      const savedToken = typeof window !== 'undefined' ? localStorage.getItem(`delt_client_session_${urlToken}`) : null;
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (savedToken) headers['x-client-session-token'] = savedToken;
+
       const res = await fetch('/api/deliverables/approve', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           dealId: currentDeal.id,
           dealCode: currentDeal.dealCode || urlToken,
           deliverableId: activeDeliverableId,
           action: 'request_changes',
-          feedback: changeFeedback,
+          feedback: feedbackText,
           clientName,
         }),
       });
-      if (!res.ok) throw new Error(await res.text());
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setChangeRequestError(data.error || 'Failed to submit change request.');
+        setRequestingChanges(false);
+        return;
+      }
+
       setDeliverables((prev) => prev.map((d) => (d.id === activeDeliverableId ? { ...d, status: 'changes_requested' } : d)));
       setFileVersions((prev) => {
-        // Find latest version for this deliverable
-        const versions = prev.filter(v => v.deliverableId === activeDeliverableId);
+        const versions = prev.filter((v) => v.deliverableId === activeDeliverableId);
         if (versions.length === 0) return prev;
-        const maxVersion = Math.max(...versions.map(v => v.version));
-        return prev.map((v) => (v.deliverableId === activeDeliverableId && v.version === maxVersion ? { ...v, status: 'changes_requested', clientFeedback: changeFeedback } : v));
+        const maxVersion = Math.max(...versions.map((v) => v.version));
+        return prev.map((v) => (v.deliverableId === activeDeliverableId && v.version === maxVersion ? { ...v, status: 'changes_requested', clientFeedback: feedbackText } : v));
       });
       setChangesOpen(false);
       setChangeFeedback('');
       setActiveDeliverableId(null);
-      alert('Change request submitted to creator.');
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setChangeRequestError(e?.message || 'Network error submitting request.');
+    } finally {
+      setRequestingChanges(false);
     }
   }
 
   async function handleCompletePayment(e?: React.MouseEvent) {
     if (e) e.preventDefault();
     setPaying(true);
+    setPaymentError('');
 
     try {
       const savedToken = localStorage.getItem(`delt_client_session_${urlToken}`);
@@ -1272,8 +1420,8 @@ function ClientPortal({
       });
 
       if (!orderRes.ok) {
-        const errData = await orderRes.json();
-        alert(errData.error || 'Failed to create payment order.');
+        const errData = await orderRes.json().catch(() => ({}));
+        setPaymentError(errData.error || 'Failed to create payment order. Please try again.');
         setPaying(false);
         return;
       }
@@ -1306,14 +1454,14 @@ function ClientPortal({
           setFileVersions((prev) => prev.map((v) => ({ ...v, status: 'approved', locked: false })));
           setPaymentOpen(false);
         } else {
-          const errData = await verifyRes.json();
-          alert(errData.error || 'Payment verification failed.');
+          const errData = await verifyRes.json().catch(() => ({}));
+          setPaymentError(errData.error || 'Payment verification failed. Please try again.');
         }
       } else {
         // Real Razorpay Checkout flow
         const loaded = await loadRazorpayScript();
         if (!loaded) {
-          alert('Failed to load Razorpay SDK. Please check your internet connection.');
+          setPaymentError('Failed to load Razorpay SDK. Please check your internet connection and try again.');
           setPaying(false);
           return;
         }
@@ -1363,12 +1511,12 @@ function ClientPortal({
                 setFileVersions((prev) => prev.map((v) => ({ ...v, status: 'approved', locked: false })));
                 setPaymentOpen(false);
               } else {
-                const errData = await verifyRes.json();
-                alert(errData.error || 'Payment verification failed.');
+                const errData = await verifyRes.json().catch(() => ({}));
+                setPaymentError(errData.error || 'Payment verification failed.');
               }
-            } catch (vErr) {
+            } catch (vErr: any) {
               console.error('Verification error:', vErr);
-              alert('An error occurred during verification.');
+              setPaymentError(vErr?.message || 'An error occurred during payment verification.');
             } finally {
               setPaying(false);
             }
@@ -1384,23 +1532,14 @@ function ClientPortal({
         const rzp = new (window as any).Razorpay(options);
         rzp.on('payment.failed', function (resp: any) {
           console.error('Payment failed details:', resp.error);
-          alert(`Payment failed: ${resp.error.description || 'Reason unknown'}`);
+          setPaymentError(`Payment failed: ${resp.error?.description || 'Transaction declined.'}`);
           setPaying(false);
         });
         rzp.open();
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Payment error:', err);
-      // In case of error in demo/offline mode, fallback to simulation
-      simulatePaymentInStore(currentDeal.id, 'Demo Card');
-      setCurrentDeal((prev) => ({
-        ...prev,
-        paymentStatus: 'paid',
-        status: 'completed',
-      }));
-      setDeliverables((prev) => prev.map((d) => ({ ...d, status: 'approved' })));
-      setFileVersions((prev) => prev.map((v) => ({ ...v, status: 'approved', locked: false })));
-      setPaymentOpen(false);
+      setPaymentError(err?.message || 'Payment processing error. Please try again.');
     } finally {
       setPaying(false);
     }
@@ -1540,18 +1679,16 @@ function ClientPortal({
         </div>
       </header>
 
-      {isReadOnly && (
-        <div className="bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60 p-3 text-center text-xs text-amber-800 dark:text-amber-300 font-medium">
-          Creator Preview: Client chat and actions are read-only in this view.
-        </div>
-      )}
+
 
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
         {/* Deal header */}
-        <div className="mb-6">
+        <div className="mb-6 space-y-1">
           <h1 className="text-2xl font-display font-semibold tracking-tight">{currentDeal.title}</h1>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-            <span>{formatCurrency(currentDeal.price, currentDeal.currency)}</span>
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            <span>From <span className="font-medium text-foreground">{creatorName}</span></span>
+            <span>·</span>
+            <span className="font-semibold text-foreground">{formatCurrency(currentDeal.price, currentDeal.currency)}</span>
             <span>·</span>
             <DealStatusBadge status={currentDeal.status} />
             <span>·</span>
@@ -1566,203 +1703,237 @@ function ClientPortal({
           )}
         </div>
 
-        <Tabs defaultValue="overview">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="overflow-x-auto scrollbar-thin -mx-1 px-1">
             <TabsList className="w-auto">
               <TabsTrigger value="overview">Overview</TabsTrigger>
+              {hasAgreement && <TabsTrigger value="agreement">Agreement</TabsTrigger>}
               <TabsTrigger value="chat">Chat</TabsTrigger>
               <TabsTrigger value="files">Files</TabsTrigger>
-              <TabsTrigger value="payment" className="relative pr-6">
-                {invoices.length > 0 ? 'Receipt' : 'Payment'}
-              </TabsTrigger>
-              <TabsTrigger value="activity">Activity</TabsTrigger>
             </TabsList>
           </div>
 
+          {hasAgreement && (
+            <TabsContent value="agreement" className="mt-4">
+              <ClientContractPanel
+                dealCode={currentDeal.dealCode || urlToken}
+                dealTitle={currentDeal.title}
+                creatorName={creatorName}
+                clientName={clientName}
+                clientEmail={clientEmail}
+              />
+            </TabsContent>
+          )}
+
           {/* Overview */}
           <TabsContent value="overview" className="mt-4">
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px]">
-              {/* Deal Card — the deal's visual identity, same component as the creator workspace.
-                  Owns the right column on desktop (sticky while the content column scrolls);
-                  first in the natural flow on smaller screens. */}
-              <div className="order-1 lg:sticky lg:top-6 lg:order-2 lg:self-start">
-                <DealCard
-                  deal={currentDeal}
-                  creatorName={creatorName}
-                  clientName={clientName}
-                  deliverablesCount={deliverables.length}
-                  milestones={milestones}
-                  variant="workspace"
-                />
-              </div>
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+              className="space-y-4 max-w-4xl"
+            >
+              <ClientNeedsAttentionBanner
+                deal={currentDeal}
+                fileVersions={fileVersions}
+                deliverables={effectiveDeliverables}
+                invoices={invoices}
+                onNavigateTab={setActiveTab}
+              />
 
-              {/* Main content column — all deal information, filling the remaining width */}
-              <div className="order-2 space-y-4 lg:order-1">
-              <Card>
-                <CardHeader><CardTitle className="text-base">Project Details</CardTitle></CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-0.5">Price</p>
-                      <p className="text-sm font-semibold">{formatCurrency(currentDeal.price, currentDeal.currency)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-0.5">Status</p>
-                      <p className="text-sm font-semibold capitalize">{currentDeal.status.replace('_', ' ')}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-0.5">Deadline</p>
-                      <p className="text-sm font-semibold">
-                        {currentDeal.deadline ? new Date(currentDeal.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'Flexible'}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-0.5">Payment</p>
-                      <PaymentStatusBadge status={currentDeal.paymentStatus} />
-                    </div>
+              {/* ① Project Details */}
+              {effectiveDeliverables.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-semibold">Project Details</CardTitle>
+                    <CardDescription className="text-xs">Agreed project scope & deliverables</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <ul className="space-y-2">
+                      {effectiveDeliverables.map((d, idx) => (
+                        <li key={d.id || idx} className="flex items-start gap-2.5 text-xs text-foreground">
+                          <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                          <span className="leading-relaxed font-medium">{d.name}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* ② Payment & Client */}
+              <Card className="border-primary/20 bg-primary/5">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                    <span>Payment & Client</span>
+                    {hasInvoice && activeInvoice && (
+                      <span className="text-xs font-mono font-normal text-muted-foreground bg-background px-2 py-0.5 rounded-md border border-border">
+                        {activeInvoice.invoice_number}
+                      </span>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-xs">
+                  <div className="flex justify-between items-center pb-2 border-b border-primary/10">
+                    <span className="text-muted-foreground">{isPaid ? 'Amount Paid' : 'Amount Due'}</span>
+                    <span className="text-lg font-semibold tracking-tight text-foreground">
+                      {hasInvoice && activeInvoice ? formatCurrency(activeInvoice.total_amount, activeInvoice.currency) : formatCurrency(currentDeal.price, currentDeal.currency)}
+                    </span>
                   </div>
-                  {currentDeal.description && (
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">Description</p>
-                      <p className="text-sm leading-relaxed">{currentDeal.description}</p>
+
+                  <div className="flex justify-between items-center pb-2 border-b border-primary/10">
+                    <span className="text-muted-foreground">Payment Status</span>
+                    <PaymentStatusBadge status={currentDeal.paymentStatus} />
+                  </div>
+
+                  <div className="flex justify-between items-center pb-2 border-b border-primary/10">
+                    <span className="text-muted-foreground">Creator</span>
+                    <span className="font-medium text-foreground">{creatorName}</span>
+                  </div>
+
+                  {hasInvoice && activeInvoice && (
+                    <div className="flex justify-between items-center pb-2 border-b border-primary/10">
+                      <span className="text-muted-foreground">Invoice</span>
+                      <Button
+                        variant="link"
+                        className="p-0 h-auto text-xs font-semibold text-primary"
+                        onClick={() => setInvoiceModalOpen(true)}
+                      >
+                        {activeInvoice.invoice_number || 'View Invoice'} →
+                      </Button>
                     </div>
                   )}
-                  {deliverables.length > 0 && (
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-2">Deliverables</p>
-                      <div className="space-y-2">
-                        {deliverables.map((d) => (
-                          <div key={d.id} className="flex items-center justify-between rounded-lg border border-border p-3">
-                            <div>
-                              <p className="text-sm font-medium">{d.name}</p>
-                              {d.description && <p className="text-xs text-muted-foreground mt-0.5">{d.description}</p>}
-                            </div>
-                            <DeliverableStatusBadge status={isPaid ? 'approved' : d.status} />
-                          </div>
-                        ))}
+
+                  {/* Promo Code Section */}
+                  {!isPaid && !isClosed && (
+                    <div className="py-2 border-b border-primary/10 space-y-2">
+                      <Label className="text-xs text-muted-foreground">Have a promo code?</Label>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <Input
+                          placeholder="Enter code (e.g. FREE)"
+                          value={promoCode}
+                          onChange={(e) => {
+                            setPromoCode(e.target.value);
+                            setPromoApplied(false);
+                            setPromoError('');
+                          }}
+                          disabled={promoApplied || applyingPromo}
+                          className="h-9 flex-1 text-xs bg-background"
+                        />
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={handleApplyPromo}
+                          disabled={!promoCode.trim() || promoApplied || applyingPromo}
+                          className="h-9 text-xs"
+                        >
+                          {applyingPromo ? 'Applying...' : promoApplied ? 'Applied' : 'Apply Promo'}
+                        </Button>
                       </div>
+                      {promoError && (
+                        <p className="text-xs text-destructive mt-1">{promoError}</p>
+                      )}
+                      {promoApplied && (
+                        <p className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                          <Check className="h-3.5 w-3.5" />
+                          Promo code applied (100% discount).
+                        </p>
+                      )}
                     </div>
                   )}
+
+                  {/* Payment Action Button */}
+                  {!isPaid && !isClosed ? (
+                    <div className="pt-2">
+                      <Dialog open={paymentOpen} onOpenChange={setPaymentOpen}>
+                        <DialogTrigger asChild>
+                          <Button className="w-full gap-2 text-xs h-10 font-semibold" disabled={paying}>
+                            <CreditCard className="h-4 w-4" />
+                            {paying ? 'Preparing secure payment gateway...' : promoApplied ? 'Complete Free Order' : `Pay ${hasInvoice && activeInvoice ? formatCurrency(activeInvoice.total_amount, currentDeal.currency) : formatCurrency(currentDeal.price, currentDeal.currency)} Securely`}
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-md">
+                          <DialogHeader>
+                            <DialogTitle className="text-base font-semibold">Complete Payment</DialogTitle>
+                          </DialogHeader>
+                          <div className="space-y-4 py-2 text-xs">
+                            <div className="rounded-lg bg-muted/40 p-3 space-y-1.5 border border-border">
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Deal Title:</span>
+                                <span className="font-semibold text-foreground truncate max-w-[200px]">{currentDeal.title}</span>
+                              </div>
+                              <div className="flex justify-between pt-2 border-t border-border font-bold text-sm">
+                                <span>Total Payable:</span>
+                                <span>{promoApplied ? formatCurrency(0, currentDeal.currency) : (hasInvoice && activeInvoice ? formatCurrency(activeInvoice.total_amount, currentDeal.currency) : formatCurrency(currentDeal.price, currentDeal.currency))}</span>
+                              </div>
+                            </div>
+                            {promoApplied ? (
+                              <p className="text-emerald-600 dark:text-emerald-400 leading-relaxed">
+                                A 100% discount promo code has been applied. Confirming will unlock all deliverable files instantly.
+                              </p>
+                            ) : (
+                              <p className="text-muted-foreground leading-relaxed">
+                                Razorpay checkout supports Cards, UPI, Netbanking, and Wallets. Deliverables unlock automatically upon verified payment confirmation.
+                              </p>
+                            )}
+                            {paymentError && (
+                              <div className="flex items-start gap-2 rounded-lg bg-destructive/10 p-3 text-destructive text-left">
+                                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                                <span>{paymentError}</span>
+                              </div>
+                            )}
+                          </div>
+                          <DialogFooter className="gap-2 sm:gap-0">
+                            <Button variant="outline" size="sm" onClick={() => setPaymentOpen(false)} disabled={paying}>
+                              Cancel
+                            </Button>
+                            <Button size="sm" onClick={promoApplied ? handleRedeemPromo : handleCompletePayment} disabled={paying}>
+                              {paying ? 'Processing...' : promoApplied ? 'Confirm Free Order' : `Confirm Pay ${hasInvoice && activeInvoice ? formatCurrency(activeInvoice.total_amount, currentDeal.currency) : formatCurrency(currentDeal.price, currentDeal.currency)}`}
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
+                  ) : isPaid ? (
+                    <div className="pt-2 flex flex-col gap-2">
+                      <div className="flex items-center gap-2.5 rounded-xl bg-emerald-500/10 p-3 border border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-200">
+                        <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <div>
+                          <p className="font-semibold text-emerald-900 dark:text-emerald-100">Payment Received & Verified</p>
+                          <p className="text-emerald-700 dark:text-emerald-300 text-[11px] mt-0.5">
+                            All deliverable files are unlocked for high-resolution download.
+                          </p>
+                        </div>
+                      </div>
+                      {hasInvoice && activeInvoice && (
+                        <Button
+                          variant="outline"
+                          className="w-full text-xs h-8 bg-background"
+                          onClick={() => {
+                            const code = activeInvoice.invoice_code || activeInvoice.invoice_number || 'UNKNOWN';
+                            printWithFilename(`DELT-${code}-INVOICE`);
+                          }}
+                        >
+                          <Download className="h-3 w-3 mr-1.5" />
+                          Download Invoice Receipt
+                        </Button>
+                      )}
+                    </div>
+                  ) : null}
                 </CardContent>
               </Card>
 
-              {currentDeal.projectStructure !== 'none' && (
+              {/* ③ Other Information: Milestones when enabled */}
+              {hasMilestones && (
                 <ScopeMilestones 
                   deal={currentDeal} 
                   milestones={milestones} 
                   isCreator={false} 
-                  showScope={currentDeal.projectStructure === 'scope' || currentDeal.projectStructure === 'scope_and_milestones'}
-                  showMilestones={currentDeal.projectStructure === 'milestones' || currentDeal.projectStructure === 'scope_and_milestones'}
+                  showScope={false}
+                  showMilestones={true}
                 />
               )}
-              <div className="space-y-4">
-                <Card>
-                  <CardHeader><CardTitle className="text-base">Client Access</CardTitle></CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="flex items-center gap-3">
-                      <Avatar className="h-10 w-10">
-                        <AvatarFallback className="bg-primary text-primary-foreground text-sm font-semibold">{getInitials(clientName)}</AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{clientName}</p>
-                        <p className="text-xs text-muted-foreground truncate">{clientEmail}</p>
-                      </div>
-                    </div>
-                    <div className="pt-2 border-t border-border space-y-1 text-xs text-muted-foreground">
-                      <p className="flex items-center gap-1.5">
-                        <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
-                        <span>Access verified via Email OTP</span>
-                      </p>
-                      <p className="flex items-center gap-1.5">
-                        <Lock className="h-3.5 w-3.5" />
-                        <span>Encrypted communication</span>
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {(() => {
-                  const activeInvoice = invoices.find(i => i.status !== 'draft');
-                  if (!activeInvoice) return null;
-                  const isInvoicePaid = activeInvoice.status === 'paid';
-
-                  return (
-                    <Card className="border-primary/20 bg-primary/5">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-base flex items-center justify-between">
-                          <span>Invoice</span>
-                          <span className="text-xs font-mono font-normal text-muted-foreground bg-background px-2 py-0.5 rounded-md border border-border">
-                            {activeInvoice.invoice_number}
-                          </span>
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-0.5">
-                            {isInvoicePaid ? 'Amount' : 'Amount due'}
-                          </p>
-                          <p className="text-2xl font-semibold tracking-tight">
-                            {formatCurrency(activeInvoice.total_amount, activeInvoice.currency)}
-                          </p>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">Status:</span>
-                          {isInvoicePaid ? (
-                            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-md">
-                              <Check className="h-3 w-3" /> Paid
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-md">
-                              <Check className="h-3 w-3" /> Paid
-                            </span>
-                          )}
-                        </div>
-
-                        {isInvoicePaid && activeInvoice.paid_at && (
-                          <p className="text-xs text-muted-foreground">
-                            Paid on: {new Date(activeInvoice.paid_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                          </p>
-                        )}
-
-                        <div className="pt-3 border-t border-primary/10 grid grid-cols-2 gap-2">
-                          <Button
-                            variant="outline"
-                            className="w-full text-xs h-8 bg-background"
-                            onClick={() => setInvoiceModalOpen(true)}
-                          >
-                            <ExternalLink className="h-3 w-3 mr-1.5" />
-                            View
-                          </Button>
-                          {isInvoicePaid ? (
-                            <Button
-                              variant="default"
-                              className="w-full text-xs h-8"
-                              onClick={() => {
-                                const code = activeInvoice.invoice_code || activeInvoice.invoice_number || 'UNKNOWN';
-                                printWithFilename(`DELT-${code}-INVOICE`);
-                              }}
-                            >
-                              <Download className="h-3 w-3 mr-1.5" />
-                              Download
-                            </Button>
-                          ) : (
-                            <Button
-                              variant="default"
-                              className="w-full text-xs h-8"
-                              onClick={() => document.querySelector<HTMLButtonElement>('button[value="payment"]')?.click()}
-                            >
-                              Pay Now
-                            </Button>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })()}
-                </div>
-              </div>
-            </div>
+            </motion.div>
           </TabsContent>
 
           {/* Chat */}
@@ -1798,7 +1969,7 @@ function ClientPortal({
                   </div>
                   <div className="mt-4 border-t border-border pt-4">
                     <div className="flex items-end gap-2">
-                      {!isClosed && !isReadOnly && (
+                      {!isClosed && (
                         <Dialog open={proposalOpen} onOpenChange={(open) => { setProposalOpen(open); if (!open) setActiveProposal(null); }}>
                           <DialogTrigger asChild>
                             <Button variant="outline" size="sm" className="shrink-0 gap-1.5">
@@ -1910,15 +2081,15 @@ function ClientPortal({
                       )}
 
                       <Textarea
-                        placeholder={isReadOnly ? "Creator Preview (read-only client chat)" : isClosed ? "Deal is closed (read-only chat history)" : "Type a message to your creator..."}
+                        placeholder={isClosed ? "Deal is closed (read-only chat history)" : "Type a message to your creator..."}
                         value={input}
-                        disabled={isClosed || isReadOnly}
+                        disabled={isClosed}
                         onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !isClosed && !isReadOnly) { e.preventDefault(); sendMessage(); } }}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !isClosed) { e.preventDefault(); sendMessage(); } }}
                         className="min-h-[40px] max-h-24 resize-none"
                         rows={1}
                       />
-                      <Button size="icon" onClick={sendMessage} className="shrink-0" disabled={isClosed || isReadOnly || !input.trim()}>
+                      <Button size="icon" onClick={sendMessage} className="shrink-0" disabled={isClosed || !input.trim()}>
                         <Send className="h-4 w-4" />
                       </Button>
                     </div>
@@ -1930,7 +2101,17 @@ function ClientPortal({
 
           {/* Files */}
           <TabsContent value="files" className="mt-4">
-            <div className="space-y-4">
+            <motion.div 
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+              className="space-y-4"
+            >
+              <div className="flex flex-col gap-1 pb-1">
+                <h3 className="text-sm font-semibold text-foreground">Deliverables & Work Files</h3>
+                <p className="text-xs text-muted-foreground">Actual files uploaded for your agreed project deliverables.</p>
+              </div>
+
               {/* Download All Bar when files exist and deal is paid */}
               {isPaid && fileVersions.some((v) => v.files.length > 0) && (
                 <div className="flex items-center justify-between rounded-xl border border-border bg-card p-3.5 mb-2">
@@ -1951,7 +2132,7 @@ function ClientPortal({
                 </div>
               )}
 
-              {deliverables.length === 0 && fileVersions.length === 0 ? (
+              {effectiveDeliverables.length === 0 && fileVersions.length === 0 ? (
                 <Card>
                   <CardContent className="p-8 text-center">
                     <EmptyState
@@ -1962,133 +2143,204 @@ function ClientPortal({
                   </CardContent>
                 </Card>
               ) : (
-                deliverables.map((del) => {
-                  const versions = fileVersions.filter((v) => v.deliverableId === del.id);
+                effectiveDeliverables.map((del, delIdx) => {
+                  const versions = fileVersions.filter((v) => v.deliverableId === del.id || (delIdx === 0 && (!v.deliverableId || v.deliverableId.startsWith('del_scope_'))));
                   return (
-                    <Card key={del.id}>
-                      <CardHeader className="flex-row items-center justify-between space-y-0">
-                        <CardTitle className="text-base">{del.name}</CardTitle>
+                    <Card key={del.id} className="overflow-hidden">
+                      <CardHeader className="flex-row items-center justify-between space-y-0 pb-3 bg-muted/20">
+                        <CardTitle className="text-base font-semibold">{del.name}</CardTitle>
                         <DeliverableStatusBadge status={isPaid || currentDeal.status === 'completed' ? 'approved' : del.status} />
                       </CardHeader>
-                      <CardContent className="space-y-3">
+                      <CardContent className="space-y-3 pt-3">
                         {versions.length === 0 ? (
-                          <p className="text-xs text-muted-foreground">No files uploaded yet.</p>
+                          <p className="text-xs text-muted-foreground py-2">No files uploaded for this deliverable yet.</p>
                         ) : (
                           versions.map((v) => (
-                            <div key={v.id} className="rounded-lg border border-border p-3">
-                              <div className="flex items-center justify-between mb-2">
+                            <div key={v.id} className="rounded-lg border border-border p-3 space-y-2 bg-card">
+                              <div className="flex items-center justify-between">
                                 <span className="text-xs font-medium text-muted-foreground">Version {v.version}</span>
                                 <span className="text-xs text-muted-foreground">{new Date(v.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
                               </div>
-                              {v.description && <p className="text-sm text-muted-foreground mb-2">{v.description}</p>}
+                              {v.description && <p className="text-sm text-muted-foreground">{v.description}</p>}
                               {v.status === 'changes_requested' && v.clientFeedback && (
-                                <div className="mb-3 rounded-md bg-amber-500/10 p-2.5 border border-amber-500/20">
+                                <div className="rounded-md bg-amber-500/10 p-2.5 border border-amber-500/20">
                                   <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-0.5">Revision Feedback</p>
                                   <p className="text-sm text-amber-800 dark:text-amber-200">{v.clientFeedback}</p>
                                 </div>
                               )}
                               <div className="space-y-1.5">
-                                {v.files.map((f) => (
-                                  <div key={f.id} className="flex items-center justify-between rounded-lg bg-muted/40 p-2.5 text-xs">
-                                    <span className="font-medium truncate">{f.name}</span>
-                                    {f.deletionStatus === 'deleted' ? (
-                                      <span className="text-red-500 font-medium bg-red-500/10 px-2 py-0.5 rounded text-[10px]">
-                                        File deleted (retention expired)
-                                      </span>
-                                    ) : isPaid ? (
-                                      <Button size="sm" variant="outline" className="gap-1 text-xs" onClick={() => handleDownloadFile((f as any).path || f.url || f.name)}>
-                                        <Download className="h-3 w-3" />
-                                        Download
-                                      </Button>
-                                    ) : currentDeal.previewEnabled ? (
-                                      f.previewStatus === 'ready' && f.previewPath ? (
+                                {v.files.map((f) => {
+                                  const effectivePreviewMode = (currentDeal as any).preview_mode || currentDeal.previewMode || (currentDeal.storageProvider === 'google_drive' ? 'EXTERNAL' : (currentDeal.previewEnabled ? 'AUTO' : 'NONE'));
+                                  const isGoogleOriginal = currentDeal.storageProvider === 'google_drive' || (f as any).provider === 'google_drive';
+                                  const isManualPreview = effectivePreviewMode === 'MANUAL';
+                                  const isExternalPreview = effectivePreviewMode === 'EXTERNAL';
+
+                                  return (
+                                    <div key={f.id} className="flex items-center justify-between rounded-lg bg-muted/40 p-2.5 text-xs">
+                                      <span className="font-medium truncate">{f.name}</span>
+                                  {f.deletionStatus === 'deleted' ? (
+                                        <span className="text-red-500 font-medium bg-red-500/10 px-2 py-0.5 rounded text-[10px]">
+                                          File deleted (retention expired)
+                                        </span>
+                                      ) : isPaid ? (
+                                        <Button size="sm" variant="outline" className="gap-1 text-xs" onClick={() => handleDownloadFile((f as any).path || (f as any).externalId || f.url || f.name)}>
+                                          <Download className="h-3 w-3" />
+                                          {isGoogleOriginal ? 'Open in Google Drive' : 'Download'}
+                                        </Button>
+                                      ) : !currentDeal.previewEnabled ? (
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-muted-foreground flex items-center gap-0.5">
+                                            <Lock className="h-3 w-3" /> Locked
+                                          </span>
+                                        </div>
+                                      ) : (effectivePreviewMode === 'OPEN_ORIGINAL' || effectivePreviewMode === 'EXTERNAL') ? (
                                         <div className="flex items-center gap-2">
                                           <Button
                                             size="sm"
                                             variant="outline"
-                                            className="gap-1 text-xs text-primary border-primary/25 hover:bg-primary/5 hover:text-primary h-7"
-                                            onClick={() => handleViewPreview(v.id, f.id, f.name, f.previewType || 'image/jpeg')}
+                                            className="gap-1 text-xs text-accent-brand border-accent-brand/30 hover:bg-accent-brand/10 h-7"
+                                            onClick={() => handleViewPreview(v.id, f.id, f.name, f.previewType || 'file')}
                                             disabled={previewLoadingFileId === f.id}
                                           >
-                                            <Eye className="h-3 w-3" />
-                                            {previewLoadingFileId === f.id ? 'Loading...' : 'Preview'}
+                                            <ExternalLink className="h-3 w-3" />
+                                            {isGoogleOriginal ? 'Open in Google Drive' : 'Open Original File'}
                                           </Button>
                                           <span className="text-muted-foreground flex items-center gap-0.5">
                                             <Lock className="h-3 w-3" /> Locked
                                           </span>
                                         </div>
-                                      ) : f.previewStatus === 'processing' ? (
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-[10px] text-muted-foreground bg-muted/65 px-1.5 py-0.5 rounded animate-pulse">
-                                            Preview processing
-                                          </span>
-                                          <span className="text-muted-foreground flex items-center gap-0.5">
-                                            <Lock className="h-3 w-3" /> Locked
-                                          </span>
-                                        </div>
+                                      ) : isManualPreview || effectivePreviewMode === 'AUTO' ? (
+                                        f.previewStatus === 'ready' && f.previewPath ? (
+                                          <div className="flex items-center gap-2">
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              className="gap-1 text-xs text-primary border-primary/25 hover:bg-primary/5 hover:text-primary h-7"
+                                              onClick={() => handleViewPreview(v.id, f.id, f.name, f.previewType || 'image/jpeg')}
+                                              disabled={previewLoadingFileId === f.id}
+                                            >
+                                              <Eye className="h-3 w-3" />
+                                              {previewLoadingFileId === f.id ? 'Loading...' : 'Preview'}
+                                            </Button>
+                                            <span className="text-muted-foreground flex items-center gap-0.5">
+                                              <Lock className="h-3 w-3" /> Locked
+                                            </span>
+                                          </div>
+                                        ) : f.previewStatus === 'processing' ? (
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-[10px] text-muted-foreground bg-muted/65 px-1.5 py-0.5 rounded animate-pulse">
+                                              Preview processing
+                                            </span>
+                                            <span className="text-muted-foreground flex items-center gap-0.5">
+                                              <Lock className="h-3 w-3" /> Locked
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-[10px] text-muted-foreground bg-muted/65 px-1.5 py-0.5 rounded">
+                                              Preview unavailable
+                                            </span>
+                                            <span className="text-muted-foreground flex items-center gap-0.5">
+                                              <Lock className="h-3 w-3" /> Locked
+                                            </span>
+                                          </div>
+                                        )
                                       ) : (
                                         <div className="flex items-center gap-2">
-                                          <span className="text-[10px] text-muted-foreground bg-muted/65 px-1.5 py-0.5 rounded">
-                                            Preview unavailable
-                                          </span>
                                           <span className="text-muted-foreground flex items-center gap-0.5">
                                             <Lock className="h-3 w-3" /> Locked
                                           </span>
                                         </div>
-                                      )
-                                    ) : (
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-muted-foreground flex items-center gap-0.5">
-                                          <Lock className="h-3 w-3" /> Locked
-                                        </span>
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </div>
                           ))
                         )}
                         
-                        {!isClosed && !isReadOnly && versions.length > 0 && (
+                        {!isClosed && versions.length > 0 && (
                           (() => {
                             const latestVersion = versions.reduce((a, b) => (a.version > b.version ? a : b));
+                            const previewEnabled = Boolean(currentDeal.previewEnabled ?? (currentDeal as any).preview_enabled);
+                            const previewMode = (currentDeal as any).preview_mode || currentDeal.previewMode;
+                            const hasUsablePreview = isUsablePreviewAvailable({
+                              previewEnabled,
+                              previewMode,
+                              storageProvider: currentDeal.storageProvider,
+                              files: latestVersion.files,
+                            });
                             
+                            if (!hasUsablePreview) {
+                              return (
+                                <div className="pt-2 border-t border-border mt-3 text-xs text-muted-foreground text-center italic">
+                                  Preview unavailable. Approval and revision requests are disabled for this deliverable.
+                                </div>
+                              );
+                            }
+
                             if (latestVersion.status === 'pending_review') {
                               return (
-                                <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-border mt-3">
-                                  <Button 
-                                    variant="outline" 
-                                    size="sm" 
-                                    className="gap-1.5"
-                                    onClick={() => { setActiveDeliverableId(del.id); setChangeFeedback(''); setChangesOpen(true); }}
-                                  >
-                                    <Flag className="h-3.5 w-3.5" />
-                                    Request Changes
-                                  </Button>
-                                  <Button 
-                                    size="sm" 
-                                    className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white" 
-                                    onClick={() => handleApproveDeliverables(del.id)}
-                                  >
-                                    <Check className="h-3.5 w-3.5" />
-                                    Approve
-                                  </Button>
-                                </div>
+                                <motion.div 
+                                  initial={{ opacity: 0, y: 4 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl border border-amber-500/30 bg-amber-500/5 dark:bg-amber-500/10 mt-3"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <Clock className="h-4 w-4 text-amber-500 shrink-0" />
+                                    <div>
+                                      <span className="text-xs font-semibold text-foreground">
+                                        {latestVersion.version > 1 ? `New version ready for review (V${latestVersion.version})` : 'Ready for your review'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Button 
+                                      variant="outline" 
+                                      size="sm" 
+                                      className="gap-1.5 text-xs h-8"
+                                      onClick={() => { setActiveDeliverableId(del.id); setChangeFeedback(''); setChangeRequestError(''); setChangesOpen(true); }}
+                                    >
+                                      <Flag className="h-3.5 w-3.5 text-amber-500" />
+                                      Request Changes
+                                    </Button>
+                                    <Button 
+                                      size="sm" 
+                                      className="gap-1.5 text-xs h-8 bg-emerald-600 hover:bg-emerald-700 text-white font-medium" 
+                                      onClick={() => handleOpenApproveModal(del)}
+                                    >
+                                      <Check className="h-3.5 w-3.5" />
+                                      Approve Deliverable
+                                    </Button>
+                                  </div>
+                                </motion.div>
                               );
                             }
                             
                             if (latestVersion.status === 'changes_requested') {
                               return (
-                                <div className="pt-3 mt-3 border-t border-border">
-                                  <p className="text-sm text-muted-foreground italic text-center">
-                                    Waiting for creator to upload a new version...
+                                <div className="pt-3 mt-3 border-t border-border space-y-2">
+                                  {latestVersion.clientFeedback && (
+                                    <div className="rounded-md bg-amber-500/10 p-2.5 border border-amber-500/20 text-xs">
+                                      <span className="font-semibold text-amber-600 dark:text-amber-400">Submitted Feedback: </span>
+                                      <span className="text-amber-800 dark:text-amber-200">{latestVersion.clientFeedback}</span>
+                                    </div>
+                                  )}
+                                  <p className="text-xs text-muted-foreground italic text-center">
+                                    Changes requested — Waiting for creator to upload a new version...
                                   </p>
                                 </div>
                               );
                             }
                             
-                            return null; // Approved
+                            return (
+                              <div className="pt-2 border-t border-border mt-3 flex items-center justify-end">
+                                <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                                  <Check className="h-3.5 w-3.5" /> Approved (V{latestVersion.version})
+                                </span>
+                              </div>
+                            );
                           })()
                         )}
                       </CardContent>
@@ -2096,253 +2348,75 @@ function ClientPortal({
                   );
                 })
               )}
-            </div>
+            </motion.div>
             
-            <Dialog open={changesOpen} onOpenChange={(open) => { setChangesOpen(open); if (!open) setActiveDeliverableId(null); }}>
-              <DialogContent>
+            {/* Confirmation Dialog for Approval */}
+            <Dialog open={approveModalOpen} onOpenChange={(open) => { setApproveModalOpen(open); if (!open) { setActiveApproveDeliverable(null); setApproveError(''); } }}>
+              <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                  <DialogTitle>Request Deliverable Changes</DialogTitle>
+                  <DialogTitle className="text-base font-semibold">Approve Deliverable?</DialogTitle>
                 </DialogHeader>
-                <form onSubmit={handleRequestChanges} className="space-y-4 pt-2">
+                {activeApproveDeliverable && (
+                  <div className="space-y-3 py-2 text-xs">
+                    <p className="text-muted-foreground">
+                      You are approving <span className="font-semibold text-foreground">{activeApproveDeliverable.name}</span>.
+                    </p>
+                    <div className="rounded-lg bg-emerald-500/10 p-3 border border-emerald-500/20 text-emerald-800 dark:text-emerald-200">
+                      <p className="font-medium">Confirming acceptance</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        This confirms that you accept the work submitted for this deliverable.
+                      </p>
+                    </div>
+                    {approveError && (
+                      <div className="rounded-md bg-destructive/10 p-2.5 text-xs text-destructive font-medium">
+                        {approveError}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <DialogFooter className="gap-2 sm:gap-0">
+                  <Button variant="outline" size="sm" onClick={() => { setApproveModalOpen(false); setActiveApproveDeliverable(null); setApproveError(''); }} disabled={approving}>
+                    Cancel
+                  </Button>
+                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5" onClick={confirmApproveDeliverable} disabled={approving}>
+                    {approving ? 'Approving...' : 'Confirm Approval'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            {/* Dialog for Request Changes */}
+            <Dialog open={changesOpen} onOpenChange={(open) => { setChangesOpen(open); if (!open) { setActiveDeliverableId(null); setChangeRequestError(''); } }}>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle className="text-base font-semibold">Request Deliverable Changes</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleRequestChanges} className="space-y-4 pt-1">
                   <div className="space-y-2">
-                    <Label>What needs to be revised?</Label>
+                    <Label className="text-xs font-medium">What would you like changed?</Label>
                     <Textarea
-                      placeholder="Describe the adjustments needed..."
+                      placeholder="Be specific about the adjustments needed (e.g. mobile spacing, CTA color)..."
                       rows={4}
                       value={changeFeedback}
-                      onChange={(e) => setChangeFeedback(e.target.value)}
+                      onChange={(e) => { setChangeFeedback(e.target.value); setChangeRequestError(''); }}
+                      className="text-xs resize-none"
                       required
                     />
+                    {changeRequestError && (
+                      <p className="text-xs text-destructive font-medium">{changeRequestError}</p>
+                    )}
                   </div>
-                  <DialogFooter>
-                    <Button type="button" variant="outline" onClick={() => { setChangesOpen(false); setActiveDeliverableId(null); }}>
+                  <DialogFooter className="gap-2 sm:gap-0">
+                    <Button type="button" variant="outline" size="sm" onClick={() => { setChangesOpen(false); setActiveDeliverableId(null); setChangeRequestError(''); }} disabled={requestingChanges}>
                       Cancel
                     </Button>
-                    <Button type="submit">Submit Request</Button>
+                    <Button type="submit" size="sm" disabled={!changeFeedback.trim() || requestingChanges}>
+                      {requestingChanges ? 'Sending Request...' : 'Send Request'}
+                    </Button>
                   </DialogFooter>
                 </form>
               </DialogContent>
             </Dialog>
-          </TabsContent>
-
-          {/* Payment */}
-          <TabsContent value="payment" className="mt-4">
-            <div className="grid gap-4 lg:grid-cols-3">
-              <Card className="lg:col-span-2">
-                <CardHeader><CardTitle className="text-base">{invoices.length > 0 ? 'Invoice Details' : 'Payment Details'}</CardTitle></CardHeader>
-                <CardContent className="space-y-3">
-                  {invoices.length > 0 ? (
-                    (() => {
-                      const activeInvoice = invoices.find(i => i.status !== 'draft');
-                      if (!activeInvoice) return null;
-                      const isInvoicePaid = activeInvoice.status === 'paid';
-                      return (
-                        <div className="bg-card rounded-xl border border-primary/20 bg-primary/5 p-4 sm:p-6 mb-6">
-                          <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-base font-semibold">Invoice</h3>
-                            <span className="text-xs font-mono font-normal text-muted-foreground bg-background px-2 py-0.5 rounded-md border border-border">
-                              {activeInvoice.invoice_number}
-                            </span>
-                          </div>
-                          <div className="space-y-4">
-                            <div>
-                              <p className="text-xs text-muted-foreground mb-0.5">{isInvoicePaid ? 'Amount' : 'Amount due'}</p>
-                              <p className="text-2xl font-semibold tracking-tight">{formatCurrency(activeInvoice.total_amount, activeInvoice.currency)}</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-muted-foreground">Status:</span>
-                              <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-md">
-                                <Check className="h-3 w-3" /> Paid
-                              </span>
-                            </div>
-                            {isInvoicePaid && activeInvoice.paid_at && (
-                              <p className="text-xs text-muted-foreground">
-                                Paid on: {new Date(activeInvoice.paid_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                              </p>
-                            )}
-                            <div className="pt-3 border-t border-primary/10 grid grid-cols-2 gap-2">
-                              <Button variant="outline" className="w-full text-xs h-8 bg-background" onClick={() => setInvoiceModalOpen(true)}>
-                                <ExternalLink className="h-3 w-3 mr-1.5" />
-                                View
-                              </Button>
-                              <Button variant="default" className="w-full text-xs h-8" onClick={() => {
-                                const code = activeInvoice.invoice_code || activeInvoice.invoice_number || 'UNKNOWN';
-                                printWithFilename(`DELT-${code}-INVOICE`);
-                              }}>
-                                <Download className="h-3 w-3 mr-1.5" />
-                                Download
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()
-                  ) : (
-                    <div className="flex items-center justify-between py-2 border-b border-border">
-                      <span className="text-sm text-muted-foreground">Project Amount</span>
-                      <span className="text-sm font-semibold">{formatCurrency(currentDeal.price, currentDeal.currency)}</span>
-                    </div>
-                  )}
-
-                  {/* Promo Code Section */}
-                  {!isPaid && !isClosed && (
-                    <div className="py-2 border-b border-border">
-                      <div className="flex flex-col sm:flex-row gap-2">
-                        <Input
-                          placeholder="Promo code (e.g. FREE)"
-                          value={promoCode}
-                          onChange={(e) => {
-                            setPromoCode(e.target.value);
-                            setPromoApplied(false);
-                            setPromoError('');
-                          }}
-                          disabled={promoApplied || applyingPromo || isReadOnly}
-                          className="h-9 flex-1"
-                        />
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={handleApplyPromo}
-                          disabled={!promoCode.trim() || promoApplied || applyingPromo || isReadOnly}
-                          className="h-9"
-                        >
-                          {applyingPromo ? 'Applying...' : promoApplied ? 'Applied' : 'Apply'}
-                        </Button>
-                      </div>
-                      {promoError && (
-                        <p className="text-xs text-destructive mt-1.5">{promoError}</p>
-                      )}
-                      {promoApplied && (
-                        <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1.5 flex items-center gap-1">
-                          <Check className="h-3 w-3" />
-                          Promo code applied. 100% discount.
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {!invoices.length && (
-                    <div className="flex items-center justify-between py-2">
-                      <span className="text-sm font-medium">Amount Due</span>
-                      <span className="text-lg font-display font-semibold">
-                        {isPaid || promoApplied ? formatCurrency(0, currentDeal.currency) : formatCurrency(currentDeal.price, currentDeal.currency)}
-                      </span>
-                    </div>
-                  )}
-
-                  {!isPaid && !isClosed && isReadOnly ? (
-                    <Button className="w-full gap-2 mt-2" disabled>
-                      <CreditCard className="h-4 w-4" />
-                      Pay with Razorpay (Creator Preview)
-                    </Button>
-                  ) : !isPaid && !isClosed ? (
-                    <div className="flex flex-col sm:flex-row gap-2 mt-2">
-                      {invoices.length > 0 && (
-                        <Button variant="outline" className="w-full sm:flex-1 gap-2" onClick={() => setInvoiceModalOpen(true)}>
-                          <FileText className="h-4 w-4" />
-                          View Receipt
-                        </Button>
-                      )}
-                      <Dialog open={paymentOpen} onOpenChange={setPaymentOpen}>
-                        <DialogTrigger asChild>
-                          <Button className={`w-full gap-2 ${invoices.length > 0 ? 'sm:flex-1' : ''}`}>
-                            <CreditCard className="h-4 w-4" />
-                            {promoApplied ? 'Complete Free Order' : `Pay ${invoices.length > 0 ? formatCurrency(invoices.find(i => i.status !== 'draft')?.total_amount || currentDeal.price, currentDeal.currency) : formatCurrency(currentDeal.price, currentDeal.currency)}`}
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>Complete Deal Payment</DialogTitle>
-                          </DialogHeader>
-                          <div className="space-y-4 py-2">
-                            <div className="rounded-lg bg-muted/40 p-3 space-y-1">
-                              <div className="flex justify-between text-sm">
-                                <span className="text-muted-foreground">Deal:</span>
-                                <span className="font-medium">{currentDeal.title}</span>
-                              </div>
-                              <div className="flex justify-between text-base font-semibold pt-2 border-t border-border">
-                                <span>Total Amount:</span>
-                                <span>{promoApplied ? formatCurrency(0, currentDeal.currency) : invoices.length > 0 ? formatCurrency(invoices.find(i => i.status !== 'draft')?.total_amount || currentDeal.price, currentDeal.currency) : formatCurrency(currentDeal.price, currentDeal.currency)}</span>
-                              </div>
-                            </div>
-                            {promoApplied ? (
-                              <p className="text-xs text-emerald-600 dark:text-emerald-400 leading-relaxed">
-                                A 100% discount promo code has been applied. Click below to complete your order for free. Files will unlock instantly.
-                              </p>
-                            ) : (
-                              <p className="text-xs text-muted-foreground leading-relaxed">
-                                Razorpay checkout handles Credit/Debit Cards, UPI, Netbanking, and Wallets. Files unlock instantly upon payment confirmation.
-                              </p>
-                            )}
-                            {promoError && (
-                              <div className="flex items-start gap-2 rounded-lg bg-destructive/10 p-3 text-xs text-destructive text-left">
-                                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                                <span>{promoError}</span>
-                              </div>
-                            )}
-                          </div>
-                          <DialogFooter>
-                            <Button variant="outline" onClick={() => setPaymentOpen(false)}>
-                              Cancel
-                            </Button>
-                            <Button onClick={promoApplied ? handleRedeemPromo : handleCompletePayment} disabled={paying}>
-                              {paying ? 'Processing...' : promoApplied ? 'Confirm Free Order' : `Confirm Pay ${invoices.length > 0 ? formatCurrency(invoices.find(i => i.status !== 'draft')?.total_amount || currentDeal.price, currentDeal.currency) : formatCurrency(currentDeal.price, currentDeal.currency)}`}
-                            </Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
-                    </div>
-                  ) : isPaid ? (
-                    <div className="flex flex-col gap-2 mt-2">
-                      <div className="flex items-center gap-2 rounded-lg bg-emerald-50 dark:bg-emerald-950 p-3">
-                        <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                        <span className="text-sm text-emerald-700 dark:text-emerald-300 font-medium">
-                          Payment confirmed. All deliverable files are unlocked for download.
-                        </span>
-                      </div>
-                      {invoices.length > 0 && (
-                        <Button variant="outline" className="w-full gap-2" onClick={() => setInvoiceModalOpen(true)}>
-                          <FileText className="h-4 w-4" />
-                          View Receipt
-                        </Button>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 p-3 mt-2 text-xs text-zinc-600 dark:text-zinc-400">
-                      <span>This deal is closed without payment.</span>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader><CardTitle className="text-base">Status</CardTitle></CardHeader>
-                <CardContent className="space-y-2">
-                  <PaymentStatusBadge status={currentDeal.paymentStatus} />
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    {isPaid
-                      ? 'Payment complete. You can download all deliverables under the Files tab.'
-                      : isClosed
-                        ? 'Deal is closed.'
-                        : 'Files will be unlocked automatically once payment is confirmed.'}
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          {/* Activity */}
-          <TabsContent value="activity" className="mt-4">
-            <Card>
-              <CardHeader><CardTitle className="text-base">Deal Activity Timeline</CardTitle></CardHeader>
-              <CardContent>
-                {events.length === 0 ? (
-                  <EmptyState icon={Clock} title="No activity recorded" description="Events will appear here as work progresses." />
-                ) : (
-                  <Timeline events={events} />
-                )}
-              </CardContent>
-            </Card>
           </TabsContent>
         </Tabs>
       </div>
@@ -2354,7 +2428,14 @@ function ClientPortal({
             <DialogTitle className="text-base truncate">Preview — {previewFileName}</DialogTitle>
           </DialogHeader>
           <div className="flex-1 overflow-auto flex items-center justify-center p-2 bg-muted/20 min-h-[40vh] max-h-[60vh] rounded-md relative">
-            {previewMimeType.startsWith('image/') ? (
+            {previewUrl.includes('drive.google.com') ? (
+              <iframe
+                src={previewUrl.replace(/\/view(\?.*)?$/, '/preview')}
+                title={previewFileName}
+                className="w-full h-[55vh] border-0 rounded shadow-sm"
+                allow="autoplay; encrypted-media"
+              />
+            ) : previewMimeType.startsWith('image/') ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={previewUrl}
@@ -2373,6 +2454,12 @@ function ClientPortal({
                 controls
                 controlsList="nodownload"
                 className="max-w-full max-h-[55vh] object-contain rounded shadow-sm"
+              />
+            ) : previewUrl ? (
+              <iframe
+                src={previewUrl}
+                title={previewFileName}
+                className="w-full h-[55vh] border-0 rounded shadow-sm"
               />
             ) : (
               <div className="text-center py-12 space-y-2">

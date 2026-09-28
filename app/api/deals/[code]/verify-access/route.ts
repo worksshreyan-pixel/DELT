@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireClientDealAccess } from '@/lib/deal-auth';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { getCreatorUsername } from '@/lib/deal-url';
 
 export async function POST(
   request: Request,
@@ -16,6 +17,7 @@ export async function POST(
 
     // Unauthenticated or unauthorized user
     if (!resolution.authorized) {
+      const creatorUsername = getCreatorUsername(resolution.creator);
       return NextResponse.json(
         {
           authorized: false,
@@ -23,30 +25,31 @@ export async function POST(
           dealTitle: resolution.dealTitle,
           clientEmail: resolution.clientEmail,
           creatorName: resolution.creatorName,
+          creatorUsername,
         },
         // We return 200 even for unauthorized so the frontend can display the OTP prompt
         { status: resolution.error === 'Deal not found.' || resolution.error === 'Deal has expired.' ? 404 : 200 }
       );
     }
 
-    const { deal, creator, clientEmail, isCreator } = resolution;
+    const { deal, creator, clientEmail } = resolution;
 
     if (!deal) {
       return NextResponse.json({ error: 'Deal not found' }, { status: 404 });
     }
 
-    // Log verification event if it's a client
-    if (!isCreator) {
-      const admin = createAdminClient();
-      await admin.from('deal_events').insert({
-        deal_id: deal.id,
-        type: 'client_verified',
-        actor_id: clientEmail,
-        actor_name: deal.clientName || 'Client',
-        actor_role: 'client',
-        description: `${deal.clientName || 'Client'} accessed the private Deal workspace.`,
-      });
-    }
+    const creatorUsername = getCreatorUsername(creator);
+
+    // Log verification event for client access
+    const admin = createAdminClient();
+    await admin.from('deal_events').insert({
+      deal_id: deal.id,
+      type: 'client_verified',
+      actor_id: clientEmail,
+      actor_name: deal.clientName || 'Client',
+      actor_role: 'client',
+      description: `${deal.clientName || 'Client'} accessed the private Deal workspace.`,
+    });
 
     return NextResponse.json({
       authorized: true,
@@ -54,7 +57,8 @@ export async function POST(
       clientName: deal.clientName,
       clientEmail: deal.clientEmail,
       creatorName: creator?.display_name || 'Creator',
-      role: isCreator ? 'creator' : 'client',
+      creatorUsername,
+      role: 'client',
     });
   } catch (error: any) {
     console.error('Error verifying deal access:', error);

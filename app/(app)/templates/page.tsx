@@ -181,7 +181,7 @@ export default function TemplatesPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="tpl-scope">Scope items (one per line)</Label>
+              <Label htmlFor="tpl-scope">Agreed deliverables (one per line)</Label>
               <Textarea
                 id="tpl-scope"
                 placeholder="Design prototype&#10;Mobile responsive build&#10;Deployment"
@@ -257,7 +257,7 @@ export default function TemplatesPage() {
                         </div>
                       ))}
                       {tpl.scope.length > 3 && (
-                        <span className="text-xs text-muted-foreground">+{tpl.scope.length - 3} more scope items</span>
+                        <span className="text-xs text-muted-foreground">+{tpl.scope.length - 3} more deliverables</span>
                       )}
                     </div>
                   </div>

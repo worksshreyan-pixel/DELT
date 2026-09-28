@@ -108,7 +108,7 @@ export function AboutWorkflowConvergence() {
       <div className="bg-card/85 backdrop-blur-md rounded-2xl border border-border/80 p-6 sm:p-8 shadow-xl">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 pb-6 border-b border-border/60">
           <div>
-            <div className="inline-flex items-center gap-2 text-xs font-mono font-semibold text-amber-500 uppercase tracking-wider mb-1">
+            <div className="inline-flex items-center gap-2 text-xs font-mono font-semibold text-accent-brand uppercase tracking-wider mb-1">
               <Layers className="h-3.5 w-3.5" />
               Workflow Architecture
             </div>
@@ -135,7 +135,7 @@ export function AboutWorkflowConvergence() {
               className={cn(
                 'px-3.5 py-1.5 rounded-full transition-all duration-200',
                 viewMode === 'connected'
-                  ? 'bg-amber-500 text-black font-semibold shadow-xs'
+                  ? 'bg-accent-brand text-accent-brand-foreground font-semibold shadow-xs'
                   : 'text-muted-foreground hover:text-foreground'
               )}
             >
@@ -193,9 +193,9 @@ export function AboutWorkflowConvergence() {
               transition={{ duration: 0.25 }}
               className="space-y-6"
             >
-              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-500 text-xs font-mono flex items-center justify-between">
+              <div className="p-4 rounded-xl bg-accent-brand/10 border border-accent-brand/30 text-accent-brand text-xs font-mono flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-amber-500" />
+                  <Sparkles className="h-4 w-4 text-accent-brand" />
                   <span>The DELT System: Single Connected Deal Room</span>
                 </div>
                 <span className="hidden sm:inline-block">Stage 0{activeStageIndex + 1} Active</span>
@@ -211,18 +211,18 @@ export function AboutWorkflowConvergence() {
                       className={cn(
                         'relative flex flex-col p-3 rounded-xl border text-left transition-all duration-200',
                         isActive
-                          ? 'bg-amber-500/10 border-amber-500/60 shadow-md'
+                          ? 'bg-accent-brand/10 border-accent-brand/60 shadow-md'
                           : 'bg-muted/20 border-border/50'
                       )}
                     >
                       {isActive && (
                         <motion.div
                           layoutId="about-stage-bar"
-                          className="absolute -top-1 left-2 right-2 h-0.5 bg-amber-500 rounded-full shadow-[0_0_6px_rgba(245,158,11,0.8)]"
+                          className="absolute -top-1 left-2 right-2 h-0.5 bg-accent-brand rounded-full shadow-[0_0_6px_rgba(59,130,246,0.8)]"
                           transition={{ type: 'spring', stiffness: 300, damping: 30 }}
                         />
                       )}
-                      <span className="text-[10px] font-mono font-bold text-amber-500 mb-1">
+                      <span className="text-[10px] font-mono font-bold text-accent-brand mb-1">
                         {stage.code}
                       </span>
                       <h4 className="font-semibold text-xs mb-1 line-clamp-1">{stage.title}</h4>
@@ -241,7 +241,7 @@ export function AboutWorkflowConvergence() {
       {/* Product Philosophy Interactive Nodes */}
       <div className="bg-card/85 backdrop-blur-md rounded-2xl border border-border/80 p-6 sm:p-8 shadow-xl">
         <div className="mb-6">
-          <div className="inline-flex items-center gap-2 text-xs font-mono font-semibold text-amber-500 uppercase tracking-wider mb-1">
+          <div className="inline-flex items-center gap-2 text-xs font-mono font-semibold text-accent-brand uppercase tracking-wider mb-1">
             <Sparkles className="h-3.5 w-3.5" />
             Product Philosophy
           </div>
@@ -266,16 +266,16 @@ export function AboutWorkflowConvergence() {
                 whileHover={{ y: -2 }}
                 whileTap={{ scale: 0.98 }}
                 className={cn(
-                  'flex flex-col items-start p-5 rounded-xl border text-left transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-amber-500',
+                  'flex flex-col items-start p-5 rounded-xl border text-left transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-accent-brand',
                   isSelected
-                    ? 'bg-amber-500/10 border-amber-500/60 shadow-md'
+                    ? 'bg-accent-brand/10 border-accent-brand/60 shadow-md'
                     : 'bg-muted/30 border-border/60 hover:bg-muted/60'
                 )}
               >
                 <div
                   className={cn(
                     'p-2 rounded-lg mb-3 transition-colors',
-                    isSelected ? 'bg-amber-500 text-black' : 'bg-muted/60 text-muted-foreground'
+                    isSelected ? 'bg-accent-brand text-accent-brand-foreground' : 'bg-muted/60 text-muted-foreground'
                   )}
                 >
                   <Icon className="h-4 w-4" />
@@ -298,7 +298,7 @@ export function AboutWorkflowConvergence() {
             className="rounded-xl border border-border/80 bg-muted/20 p-6"
           >
             <div className="flex items-center gap-3 mb-4 pb-4 border-b border-border/50">
-              <div className="p-2 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-500">
+              <div className="p-2 rounded-lg bg-accent-brand/15 border border-accent-brand/30 text-accent-brand">
                 <activePrinciple.icon className="h-5 w-5" />
               </div>
               <div>
@@ -307,7 +307,7 @@ export function AboutWorkflowConvergence() {
               </div>
             </div>
 
-            <blockquote className="text-sm italic text-foreground mb-6 font-serif border-l-2 border-amber-500 pl-4 py-1">
+            <blockquote className="text-sm italic text-foreground mb-6 font-serif border-l-2 border-accent-brand pl-4 py-1">
               "{activePrinciple.quote}"
             </blockquote>
 

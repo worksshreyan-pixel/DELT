@@ -11,36 +11,58 @@ export async function POST(
     const resolution = await requireCreatorDealAccess(code);
 
     if (!resolution.authorized || !resolution.deal) {
-      return NextResponse.json({ error: resolution.error || 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: resolution.error || 'Unauthorized.' }, { status: 403 });
     }
 
-    const { deal } = resolution;
+    const { deal, creator } = resolution;
     const body = await request.json();
     
-    // items should be an array of { id: string, order: number }
     const { items } = body;
-
-    if (!Array.isArray(items)) {
-      return NextResponse.json({ error: 'Items array is required' }, { status: 400 });
+    if (!Array.isArray(items) || items.length === 0) {
+      return NextResponse.json({ error: 'Valid items array is required.' }, { status: 400 });
     }
 
     const admin = createAdminClient();
 
-    // Since Supabase doesn't easily support bulk updates via JS client with different values per row,
-    // we'll loop through and do updates. In a very high-traffic app we might use an RPC,
-    // but for reordering 5-10 milestones this is perfectly fine.
-    
+    // Verify all item IDs belong strictly to this deal (IDOR protection)
+    const itemIds = items.map((i: any) => i.id).filter(Boolean);
+    const { data: validMilestones } = await admin
+      .from('milestones')
+      .select('id')
+      .eq('deal_id', deal.id)
+      .in('id', itemIds);
+
+    const validIdSet = new Set((validMilestones || []).map((m: any) => m.id));
+    if (validIdSet.size !== itemIds.length) {
+      return NextResponse.json(
+        { error: 'One or more milestone IDs do not belong to this deal.' },
+        { status: 403 }
+      );
+    }
+
+    const now = new Date().toISOString();
     const updates = items.map(async (item: any) => {
       if (item.id && typeof item.order === 'number') {
         return admin
           .from('milestones')
-          .update({ order: item.order, updated_at: new Date().toISOString() })
+          .update({ order: item.order, updated_at: now })
           .eq('id', item.id)
           .eq('deal_id', deal.id);
       }
     });
 
     await Promise.all(updates);
+
+    // Log the event
+    await admin.from('deal_events').insert({
+      deal_id: deal.id,
+      type: 'milestone_reordered',
+      actor_id: creator?.email,
+      actor_name: creator?.display_name || 'Creator',
+      actor_role: 'creator',
+      description: 'Milestones reordered.',
+      metadata: { count: items.length },
+    });
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

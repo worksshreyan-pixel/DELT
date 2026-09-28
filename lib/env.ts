@@ -98,7 +98,11 @@ export const env = {
   },
   app: {
     get url() {
-      return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+      const configured = process.env.NEXT_PUBLIC_APP_URL;
+      if (process.env.NODE_ENV === 'production' && (!configured || configured.includes('localhost') || configured.includes('127.0.0.1'))) {
+        throw new Error('[ENV CONFIGURATION ERROR] NEXT_PUBLIC_APP_URL environment variable must be configured with a valid HTTPS production URL in production.');
+      }
+      return configured || 'http://localhost:3000';
     },
     get fileRetentionDays() {
       return Number(process.env.FILE_RETENTION_DAYS || '30');

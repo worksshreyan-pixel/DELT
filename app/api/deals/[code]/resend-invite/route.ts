@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { getClientDealUrl } from '@/lib/deal-url';
+import { getClientDealUrl, getCreatorUsername } from '@/lib/deal-url';
 import { sendDealInvitationEmail } from '@/lib/email';
 import { requireCreatorDealAccess } from '@/lib/deal-auth';
 
@@ -28,7 +28,8 @@ export async function POST(
 
     const deal = resolution.deal;
     const creatorName = resolution.creator?.display_name || 'Creator';
-    const canonicalDealUrl = getClientDealUrl(deal.dealCode);
+    const creatorUsername = getCreatorUsername(resolution.creator);
+    const canonicalDealUrl = getClientDealUrl(deal.dealCode, creatorUsername);
     const admin = createAdminClient();
 
     // 3. Send email

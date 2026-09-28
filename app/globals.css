@@ -30,12 +30,16 @@
     --input: 220 14% 90%;
     --ring: 220 20% 10%;
 
-    /* DELT brand accent — warm amber */
-    --accent-brand: 38 92% 50%;
-    --accent-brand-foreground: 220 20% 10%;
-    --accent-brand-subtle: 38 92% 96%;
+    /* DELT brand accent — Electric Blue (#3B82F6) */
+    --accent-brand: 217 91% 60%;
+    --accent-brand-hover: 221 83% 53%;
+    --accent-brand-active: 224 76% 48%;
+    --accent-brand-foreground: 210 40% 98%;
+    --accent-brand-subtle: 217 91% 96%;
+    --accent-brand-border: 217 91% 80%;
+    --accent-brand-glow: 217 91% 60%;
 
-    --chart-1: 199 89% 48%;
+    --chart-1: 217 91% 60%;
     --chart-2: 142 71% 45%;
     --chart-3: 38 92% 50%;
     --chart-4: 280 65% 60%;
@@ -64,18 +68,22 @@
     --success-foreground: 210 40% 98%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 0%;
-    --info: 199 89% 48%;
+    --info: 217 91% 60%;
     --info-foreground: 210 40% 98%;
     --border: 0 0% 14%;
     --input: 0 0% 14%;
     --ring: 240 5% 65%;
 
-    /* DELT brand accent — warm amber stays consistent across modes */
-    --accent-brand: 38 92% 50%;
-    --accent-brand-foreground: 0 0% 0%;
-    --accent-brand-subtle: 38 92% 10%;
+    /* DELT brand accent — Electric Blue (#3B82F6) */
+    --accent-brand: 217 91% 60%;
+    --accent-brand-hover: 217 91% 68%;
+    --accent-brand-active: 217 91% 75%;
+    --accent-brand-foreground: 210 40% 98%;
+    --accent-brand-subtle: 217 80% 12%;
+    --accent-brand-border: 217 80% 25%;
+    --accent-brand-glow: 217 91% 60%;
 
-    --chart-1: 199 89% 48%;
+    --chart-1: 217 91% 60%;
     --chart-2: 142 71% 45%;
     --chart-3: 38 92% 50%;
     --chart-4: 280 65% 60%;
@@ -156,6 +164,9 @@
   }
   .bg-accent-brand-subtle {
     background-color: hsl(var(--accent-brand-subtle));
+  }
+  .border-accent-brand-border {
+    border-color: hsl(var(--accent-brand-border));
   }
 
   /* Typography helpers */

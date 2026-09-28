@@ -11,7 +11,7 @@ const config: Config = {
     extend: {
       fontFamily: {
         sans: ['var(--font-sans)', 'Inter', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
-        display: ['var(--font-sans)', 'Inter', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
+        display: ['var(--font-display)', 'var(--font-sans)', 'Inter', '-apple-system', 'sans-serif'],
         mono: ['var(--font-mono)', 'ui-monospace', 'monospace'],
       },
       backgroundImage: {
@@ -72,8 +72,12 @@ const config: Config = {
         ring: 'hsl(var(--ring))',
         'accent-brand': {
           DEFAULT: 'hsl(var(--accent-brand))',
+          hover: 'hsl(var(--accent-brand-hover))',
+          active: 'hsl(var(--accent-brand-active))',
           foreground: 'hsl(var(--accent-brand-foreground))',
           subtle: 'hsl(var(--accent-brand-subtle))',
+          border: 'hsl(var(--accent-brand-border))',
+          glow: 'hsl(var(--accent-brand-glow))',
         },
         chart: {
           '1': 'hsl(var(--chart-1))',

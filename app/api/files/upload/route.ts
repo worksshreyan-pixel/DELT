@@ -70,16 +70,7 @@ export async function POST(request: Request) {
         }
       }
 
-      // Fetch existing versions count for deliverable
-      const { count } = await admin
-        .from('file_versions')
-        .select('*', { count: 'exact', head: true })
-        .eq('deal_id', dealId);
-
-      const versionNum = (count || 0) + 1;
-
       // Determine deliverable ID
-      // Prepare target deliverables
       let targetDeliverableId = deliverableId;
       if (!targetDeliverableId) {
         const { data: firstDeliv } = await admin
@@ -95,6 +86,24 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'No deliverables found for this deal' }, { status: 400 });
       }
 
+      // Fetch existing versions count for THIS specific deliverable
+      const { count } = await admin
+        .from('file_versions')
+        .select('*', { count: 'exact', head: true })
+        .eq('deliverable_id', targetDeliverableId);
+
+      const versionNum = (count || 0) + 1;
+
+      // Use explicit provider preference for this deal and enforce consistency
+      const dealStorageProvider = deal.storage_provider || 'supabase';
+      const provider = await resolveStorageProvider(user.id, dealId);
+      if (provider.id !== dealStorageProvider) {
+        return NextResponse.json(
+          { error: `Mixed storage providers within a deal are not allowed. Deal requires ${dealStorageProvider}.` },
+          { status: 400 }
+        );
+      }
+
       const uploadedFileItems = filesToRegister.map((f: any) => ({
         id: f.id || `f_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         name: f.name,
@@ -104,13 +113,11 @@ export async function POST(request: Request) {
         previewPath: f.previewPath || undefined,
         previewType: f.previewType || undefined,
         previewStatus: f.previewStatus || undefined,
+        previewProvider: f.previewProvider || (f.previewPath ? 'supabase' : undefined),
         previewGeneratedAt: f.previewGeneratedAt || (f.previewPath ? new Date().toISOString() : undefined),
         uploadSessionId: f.uploadSessionId,
         externalId: f.externalId,
       }));
-
-      // Use explicit provider preference for this deal
-      const provider = await resolveStorageProvider(user.id, dealId);
       
       // 2. Verify Upload Sessions and call Provider's completeUpload
       const verifiedMetadata: any[] = [];
@@ -248,7 +255,10 @@ export async function POST(request: Request) {
       try {
         if (deal?.client_email) {
           const { sendDeliverablesUploadedEmail } = await import('@/lib/email');
-          const canonicalDealUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/deal/${deal.token}`;
+          const { getClientDealUrl, getCreatorUsername } = await import('@/lib/deal-url');
+          const { data: creatorProfile } = await supabase.from('profiles').select('username, display_name, email').eq('id', deal.creator_id).maybeSingle();
+          const creatorUsername = getCreatorUsername(creatorProfile);
+          const canonicalDealUrl = getClientDealUrl(deal.code || deal.token || deal.id, creatorUsername);
           await sendDeliverablesUploadedEmail({
             clientName: deal.client_name || 'Client',
             clientEmail: deal.client_email,

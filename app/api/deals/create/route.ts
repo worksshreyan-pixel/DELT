@@ -1,9 +1,14 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { generateDealToken, generateDealCode, getClientDealUrl } from '@/lib/deal-url';
+import { generateDealToken, generateDealCode, getClientDealUrl, getCreatorUsername } from '@/lib/deal-url';
 import { sendDealInvitationEmail, sendDealCreatedEmail } from '@/lib/email';
 import { serializeDescription } from '@/lib/utils';
+import {
+  captureDeliverablesSnapshot,
+  captureMilestonesSnapshot,
+  getDefaultContractTerms,
+} from '@/lib/contracts/state';
 
 import { FREE_PLAN_DEAL_LIMIT } from '@/lib/plans';
 
@@ -43,6 +48,10 @@ export async function POST(request: Request) {
     let projectStructure = 'scope_and_milestones';
     let storageProvider = 'supabase';
     let storageConnectionId: string | null = null;
+    let previewMode: 'AUTO' | 'MANUAL' | 'EXTERNAL' | 'NONE' = 'AUTO';
+    let createAgreement = false;
+    let createInvoice = false;
+    let milestones: any[] = [];
 
     if (contentType.includes('multipart/form-data')) {
       const formData = await request.formData();
@@ -55,6 +64,19 @@ export async function POST(request: Request) {
       currency = (formData.get('currency') as string) || 'INR';
       deadline = (formData.get('deadline') as string) || '';
       previewEnabled = formData.get('previewEnabled') === 'true';
+      createAgreement = formData.get('createAgreement') === 'true';
+      createInvoice = formData.get('createInvoice') === 'true';
+      const rawPreviewMode = formData.get('previewMode') as string;
+      if (rawPreviewMode) previewMode = rawPreviewMode as any;
+
+      const rawMilestones = formData.get('milestones') as string;
+      if (rawMilestones) {
+        try {
+          milestones = JSON.parse(rawMilestones);
+        } catch {
+          milestones = [];
+        }
+      }
 
       const rawScope = formData.get('scope') as string;
       if (rawScope) {
@@ -105,9 +127,29 @@ export async function POST(request: Request) {
       scope = Array.isArray(body.scope) ? body.scope : [];
       deliverables = Array.isArray(body.deliverables) ? body.deliverables : [];
       previewEnabled = body.previewEnabled === true;
+      createAgreement = body.createAgreement === true;
+      createInvoice = body.createInvoice === true;
+      milestones = Array.isArray(body.milestones) ? body.milestones : [];
       projectStructure = body.projectStructure || 'scope_and_milestones';
       storageProvider = body.storageProvider || 'supabase';
       storageConnectionId = body.storageConnectionId || null;
+      if (body.previewMode) previewMode = body.previewMode;
+    }
+
+    // Validate provider-aware previewMode
+    if (!previewEnabled) {
+      previewMode = 'NONE';
+      previewEnabled = false;
+    } else if (storageProvider === 'google_drive') {
+      if (previewMode !== 'EXTERNAL' && previewMode !== 'MANUAL') {
+        previewMode = 'EXTERNAL';
+      }
+      previewEnabled = true;
+    } else {
+      if (previewMode !== 'NONE' && previewMode !== 'AUTO' && previewMode !== 'MANUAL') {
+        previewMode = 'NONE';
+      }
+      previewEnabled = true;
     }
 
     const validStructures = ['none', 'scope', 'milestones', 'scope_and_milestones'];
@@ -228,6 +270,8 @@ export async function POST(request: Request) {
     }
 
     // 3. Create Deal record
+    const canonicalScope = scope.length > 0 ? scope : (deliverables.length > 0 ? deliverables : (hasScope ? ['Project requirements & delivery'] : ['Final Project Deliverable']));
+
     let deal: any = null;
     let dealError: any = null;
     
@@ -245,7 +289,7 @@ export async function POST(request: Request) {
           client_email: clientEmail.trim().toLowerCase(),
           title: title.trim(),
           description: serializeDescription(description.trim() || null, previewEnabled),
-          scope: scope.length > 0 ? scope : (hasScope ? ['Project requirements & delivery'] : []),
+          scope: canonicalScope,
           project_structure: structureToSave,
           price: price,
           currency,
@@ -255,6 +299,7 @@ export async function POST(request: Request) {
           last_activity_at: now,
           storage_provider: storageProvider,
           storage_connection_id: storageConnectionId,
+          preview_mode: previewMode,
         })
         .select()
         .single();
@@ -303,7 +348,7 @@ export async function POST(request: Request) {
     ]);
 
     // 5. Create deliverables
-    const deliverableItems = deliverables.length > 0 ? deliverables : ['Final Project Deliverables'];
+    const deliverableItems = canonicalScope;
     let primaryDeliverableId = '';
     for (let i = 0; i < deliverableItems.length; i++) {
       const delName = deliverableItems[i];
@@ -314,6 +359,148 @@ export async function POST(request: Request) {
       }).select().single();
       if (i === 0 && delivRecord) {
         primaryDeliverableId = delivRecord.id;
+      }
+    }
+
+    // 5b. Create Agreement Draft if explicitly requested by creator
+    if (createAgreement) {
+      try {
+        const delivSnapshots = await captureDeliverablesSnapshot(deal.id, canonicalScope);
+        const milestoneSnapshots = await captureMilestonesSnapshot(deal.id);
+        const defaultTerms = getDefaultContractTerms(title.trim(), clientName.trim());
+
+        const { data: newContract } = await admin
+          .from('deal_contracts')
+          .insert({
+            deal_id: deal.id,
+            status: 'draft',
+          })
+          .select()
+          .single();
+
+        if (newContract) {
+          const { data: newVersion } = await admin
+            .from('contract_versions')
+            .insert({
+              contract_id: newContract.id,
+              deal_id: deal.id,
+              version_number: 1,
+              title: `${title.trim()} — Service Agreement`,
+              terms_content: defaultTerms,
+              price_snapshot: price,
+              currency_snapshot: currency || 'INR',
+              deliverables_snapshot: delivSnapshots,
+              milestones_snapshot: milestoneSnapshots,
+              created_by: user.id,
+            })
+            .select()
+            .single();
+
+          if (newVersion) {
+            await admin
+              .from('deal_contracts')
+              .update({ current_version_id: newVersion.id })
+              .eq('id', newContract.id);
+
+            await admin.from('deal_events').insert({
+              deal_id: deal.id,
+              type: 'contract_created',
+              actor_id: user.id,
+              actor_name: user.user_metadata?.displayName || 'Creator',
+              actor_role: 'creator',
+              description: `Draft agreement initialized during deal creation.`,
+            });
+          }
+        }
+      } catch (cErr) {
+        console.error('Non-blocking error initializing contract during deal creation:', cErr);
+      }
+    }
+
+    // 5c. Create Initial Milestones if explicitly configured
+    if (Array.isArray(milestones) && milestones.length > 0) {
+      try {
+        for (let i = 0; i < milestones.length; i++) {
+          const m = milestones[i];
+          const mTitle = typeof m === 'string' ? m : m.title;
+          const mDesc = typeof m === 'object' ? m.description : null;
+          const mDueDate = typeof m === 'object' ? m.dueDate : null;
+          if (mTitle && mTitle.trim()) {
+            await admin.from('milestones').insert({
+              deal_id: deal.id,
+              title: mTitle.trim(),
+              description: mDesc ? mDesc.trim() : null,
+              due_date: mDueDate || null,
+              order: i,
+              status: 'pending',
+            });
+          }
+        }
+        await admin.from('deal_events').insert({
+          deal_id: deal.id,
+          type: 'milestone_created',
+          actor_id: user.id,
+          actor_name: user.user_metadata?.displayName || 'Creator',
+          actor_role: 'creator',
+          description: `${milestones.length} milestone(s) initialized during deal creation.`,
+        });
+      } catch (mErr) {
+        console.error('Non-blocking error initializing milestones during deal creation:', mErr);
+      }
+    }
+
+    // 5d. Create Initial Draft Invoice if explicitly requested
+    if (createInvoice) {
+      try {
+        const invoiceNumber = `DELT-INV-${Array.from({ length: 6 }, () =>
+          'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'[Math.floor(Math.random() * 36)]
+        ).join('')}`;
+
+        const { data: newInvoice } = await admin
+          .from('invoices')
+          .insert({
+            invoice_number: invoiceNumber,
+            deal_id: deal.id,
+            creator_id: user.id,
+            client_id: clientId,
+            status: 'draft',
+            type: 'standard',
+            currency: currency || 'INR',
+            issue_date: now,
+            due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+            subtotal: price,
+            discount_amount: 0,
+            tax_amount: 0,
+            total_amount: price,
+            amount_paid: 0,
+            amount_due: price,
+            created_at: now,
+            updated_at: now,
+          })
+          .select()
+          .single();
+
+        if (newInvoice) {
+          await admin.from('invoice_items').insert({
+            invoice_id: newInvoice.id,
+            description: `${title.trim()} — Professional Services`,
+            quantity: 1,
+            unit_price: price,
+            line_total: price,
+            sort_order: 0,
+          });
+
+          await admin.from('deal_events').insert({
+            deal_id: deal.id,
+            type: 'invoice_created',
+            actor_id: user.id,
+            actor_name: user.user_metadata?.displayName || 'Creator',
+            actor_role: 'creator',
+            description: `Draft invoice initialized during deal creation.`,
+          });
+        }
+      } catch (iErr) {
+        console.error('Non-blocking error initializing invoice during deal creation:', iErr);
       }
     }
 
@@ -362,8 +549,10 @@ export async function POST(request: Request) {
     }
 
     // 9. Send Client Invitation Email
-    const canonicalDealUrl = getClientDealUrl(deal.deal_code);
-    const creatorDisplayName = user.user_metadata?.displayName || user.email?.split('@')[0] || 'Creator';
+    const { data: creatorProfile } = await admin.from('profiles').select('*').eq('id', user.id).single();
+    const creatorUsername = getCreatorUsername(creatorProfile || { username: user.user_metadata?.username, email: user.email, display_name: user.user_metadata?.displayName });
+    const canonicalDealUrl = getClientDealUrl(deal.deal_code, creatorUsername);
+    const creatorDisplayName = creatorProfile?.display_name || user.user_metadata?.displayName || user.email?.split('@')[0] || 'Creator';
 
     console.log(`[INVITATION_EMAIL_START]`, JSON.stringify({
       dealId: deal.id,

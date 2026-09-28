@@ -25,6 +25,7 @@ export const profiles = pgTable('profiles', {
   id: text('id').primaryKey(), // Clerk User ID (e.g. user_2...) or UUID
   email: text('email').notNull(),
   displayName: text('display_name').notNull(),
+  username: text('username').unique(),
   avatarUrl: text('avatar_url'),
   bio: text('bio'),
   profession: text('profession'),
@@ -116,6 +117,7 @@ export const deals = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
     previewEnabled: boolean('preview_enabled').notNull().default(false),
+    previewMode: text('preview_mode').notNull().default('AUTO'),
     projectStructure: text('project_structure').notNull().default('scope_and_milestones'),
     storageProvider: text('storage_provider').notNull().default('supabase'),
     // Reference by UUID, no strict foreign key to avoid circular deps if storageConnections is far down, 
@@ -297,6 +299,7 @@ export const milestones = pgTable(
     order: integer('order').notNull().default(0),
     dueDate: timestamp('due_date', { withTimezone: true }),
     status: text('status').notNull().default('pending'), // 'pending', 'in_progress', 'completed'
+    completedAt: timestamp('completed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -361,6 +364,55 @@ export const transactions = pgTable(
   },
   (table) => ({
     creatorIdIdx: index('idx_transactions_creator_id').on(table.creatorId),
+  })
+);
+
+// ------------------------------------------------------------------------------
+// 10b. Financial Ledger (Immutable Double-Entry Audit Trail for Creator Earnings)
+// ------------------------------------------------------------------------------
+export const financialLedger = pgTable(
+  'financial_ledger',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => profiles.id, { onDelete: 'cascade' }),
+    dealId: uuid('deal_id').references(() => deals.id, { onDelete: 'set null' }),
+    transactionId: text('transaction_id').references(() => transactions.id, { onDelete: 'set null' }),
+    type: text('type').notNull(), // 'earning' | 'fee' | 'withdrawal' | 'refund' | 'adjustment'
+    amount: numeric('amount').notNull(),
+    currency: text('currency').notNull().default('INR'),
+    status: text('status').notNull().default('available'), // 'available' | 'pending' | 'completed' | 'reversed'
+    description: text('description').notNull(),
+    metadata: jsonb('metadata').default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userIdIdx: index('idx_financial_ledger_user_id').on(table.userId),
+    dealIdIdx: index('idx_financial_ledger_deal_id').on(table.dealId),
+  })
+);
+
+// ------------------------------------------------------------------------------
+// 10c. Saved Payment & Payout Methods (Masked Provider Tokens / UPI / Bank Accounts)
+// ------------------------------------------------------------------------------
+export const paymentMethods = pgTable(
+  'payment_methods',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => profiles.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(), // 'bank_account' | 'upi' | 'card_token'
+    provider: text('provider').notNull().default('razorpay'),
+    label: text('label').notNull(),
+    details: jsonb('details').default({}),
+    isDefault: boolean('is_default').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userIdIdx: index('idx_payment_methods_user_id').on(table.userId),
   })
 );
 
@@ -447,7 +499,7 @@ export const invoices = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    dealIdIdx: uniqueIndex('idx_invoices_deal_id').on(table.dealId),
+    dealIdIdx: index('idx_invoices_deal_id').on(table.dealId),
     creatorIdIdx: index('idx_invoices_creator_id').on(table.creatorId),
     invoiceNumberIdx: uniqueIndex('idx_invoices_number').on(table.invoiceNumber),
     statusIdx: index('idx_invoices_status').on(table.status),
@@ -767,4 +819,83 @@ export const uploadSessionsRelations = relations(uploadSessions, ({ one }) => ({
     references: [deliverables.id],
   }),
 }));
+
+// ------------------------------------------------------------------------------
+// 16. Deal Contracts & Contract Versions
+// ------------------------------------------------------------------------------
+export const dealContracts = pgTable(
+  'deal_contracts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    dealId: uuid('deal_id')
+      .notNull()
+      .unique()
+      .references(() => deals.id, { onDelete: 'cascade' }),
+    currentVersionId: uuid('current_version_id'),
+    status: text('status').notNull().default('draft'), // 'draft' | 'sent' | 'viewed' | 'changes_requested' | 'accepted'
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    dealIdIdx: index('idx_deal_contracts_deal_id').on(table.dealId),
+  })
+);
+
+export const contractVersions = pgTable(
+  'contract_versions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    contractId: uuid('contract_id')
+      .notNull()
+      .references(() => dealContracts.id, { onDelete: 'cascade' }),
+    dealId: uuid('deal_id')
+      .notNull()
+      .references(() => deals.id, { onDelete: 'cascade' }),
+    versionNumber: integer('version_number').notNull().default(1),
+    title: text('title').notNull(),
+    termsContent: text('terms_content').notNull(),
+    priceSnapshot: numeric('price_snapshot').notNull(),
+    currencySnapshot: text('currency_snapshot').notNull().default('INR'),
+    deliverablesSnapshot: jsonb('deliverables_snapshot')
+      .$type<Array<{ name: string; description?: string }>>()
+      .notNull()
+      .default([]),
+    milestonesSnapshot: jsonb('milestones_snapshot')
+      .$type<Array<{ title: string; description?: string; dueDate?: string }>>()
+      .default([]),
+    createdBy: text('created_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    viewedAt: timestamp('viewed_at', { withTimezone: true }),
+    changesRequestedAt: timestamp('changes_requested_at', { withTimezone: true }),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    clientFeedback: text('client_feedback'),
+    acceptanceMetadata: jsonb('acceptance_metadata').default({}),
+  },
+  (table) => ({
+    contractIdIdx: index('idx_contract_versions_contract_id').on(table.contractId),
+    dealIdIdx: index('idx_contract_versions_deal_id').on(table.dealId),
+    uniqueVersionIdx: uniqueIndex('idx_contract_versions_unique_version').on(table.contractId, table.versionNumber),
+  })
+);
+
+export const dealContractsRelations = relations(dealContracts, ({ one, many }) => ({
+  deal: one(deals, {
+    fields: [dealContracts.dealId],
+    references: [deals.id],
+  }),
+  versions: many(contractVersions),
+}));
+
+export const contractVersionsRelations = relations(contractVersions, ({ one }) => ({
+  contract: one(dealContracts, {
+    fields: [contractVersions.contractId],
+    references: [dealContracts.id],
+  }),
+  deal: one(deals, {
+    fields: [contractVersions.dealId],
+    references: [deals.id],
+  }),
+}));
+
 

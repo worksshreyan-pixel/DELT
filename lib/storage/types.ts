@@ -4,6 +4,8 @@
 
 export type ProviderOwnershipType = 'DELT_MANAGED' | 'CUSTOMER_MANAGED';
 
+export type PreviewMode = 'AUTO' | 'MANUAL' | 'EXTERNAL' | 'NONE';
+
 export interface StorageCapabilities {
   canUpload: boolean;
   canDownload: boolean;
@@ -15,6 +17,7 @@ export interface StorageCapabilities {
   supportsOAuth: boolean;
   supportsWebhooks: boolean;
   supportsResumableUpload: boolean;
+  canOpenExternally?: boolean;
 }
 
 export interface StorageObjectMetadata {

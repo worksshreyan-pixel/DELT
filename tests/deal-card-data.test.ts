@@ -217,11 +217,11 @@ describe('formatCardDate / formatCardCurrency', () => {
 describe('deal-url — canonical client URL generation', () => {
   const originalUrl = process.env.NEXT_PUBLIC_APP_URL;
 
-  test('encodes the deal code into the canonical client path', () => {
+  test('encodes the creator username and deal code into the canonical client path', () => {
     process.env.NEXT_PUBLIC_APP_URL = 'https://delt.example.com';
     assert.equal(
-      getClientDealUrl('DLT-A7F39C21'),
-      'https://delt.example.com/deal/DLT-A7F39C21'
+      getClientDealUrl('DLT-A7F39C21', 'shreyan'),
+      'https://delt.example.com/shreyan/DLT-A7F39C21'
     );
     assert.equal(
       getCreatorDealUrl('DLT-A7F39C21'),
@@ -232,14 +232,14 @@ describe('deal-url — canonical client URL generation', () => {
   test('strips trailing slashes from the configured base', () => {
     process.env.NEXT_PUBLIC_APP_URL = 'https://delt.example.com/';
     assert.equal(
-      getClientDealUrl('DLT-A7F39C21'),
-      'https://delt.example.com/deal/DLT-A7F39C21'
+      getClientDealUrl('DLT-A7F39C21', 'shreyan'),
+      'https://delt.example.com/shreyan/DLT-A7F39C21'
     );
   });
 
-  test('URI-encodes unsafe characters in the code', () => {
+  test('URI-encodes unsafe characters in the code and username', () => {
     process.env.NEXT_PUBLIC_APP_URL = 'https://delt.example.com';
-    assert.equal(getClientDealUrl('DLT A/B'), 'https://delt.example.com/deal/DLT%20A%2FB');
+    assert.equal(getClientDealUrl('DLT A/B', 'user_name'), 'https://delt.example.com/user_name/DLT%20A%2FB');
   });
 
   test('generateDealCode excludes confusing characters', () => {

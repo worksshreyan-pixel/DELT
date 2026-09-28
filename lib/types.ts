@@ -17,6 +17,7 @@ export interface Profile {
   id: UUID;
   email: string;
   displayName: string;
+  username?: string;
   avatarUrl?: string;
   bio?: string;
   profession?: string;
@@ -88,7 +89,10 @@ export interface Deal {
   createdAt: ISODate;
   updatedAt: ISODate;
   previewEnabled: boolean;
+  previewMode?: 'AUTO' | 'MANUAL' | 'EXTERNAL' | 'NONE';
   projectStructure: ProjectStructure;
+  storageProvider?: string;
+  storageConnectionId?: string | null;
 }
 
 export type DealParticipantRole = 'creator' | 'client';
@@ -199,6 +203,8 @@ export interface FileVersionItem {
   type: string;
   path: string;
   url?: string;
+  externalId?: string;
+  provider?: string;
   previewPath?: string;
   previewType?: string;
   previewStatus?: 'ready' | 'failed' | 'processing';
@@ -331,7 +337,12 @@ export type DealEventType =
   | 'payment_completed'
   | 'payment_failed'
   | 'files_unlocked'
+  | 'scope_updated'
+  | 'milestone_created'
+  | 'milestone_updated'
   | 'milestone_completed'
+  | 'milestone_deleted'
+  | 'milestone_reordered'
   | 'project_completed'
   | 'deal_closed';
 

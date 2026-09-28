@@ -52,15 +52,28 @@ export function useUser(): UserContextState {
         authUser.email?.split('@')[0] ||
         'Creator';
 
+      const resolvedUsername =
+        (rawProfile.username as string | undefined) ||
+        (authUser.user_metadata?.username as string | undefined) ||
+        (authUser.email?.includes('@') ? authUser.email.split('@')[0].replace(/[^a-z0-9_-]/gi, '').toLowerCase() : 'creator');
+
+      const resolvedAvatarUrl =
+        (rawProfile.avatar_url as string | undefined) ||
+        (rawProfile.avatarUrl as string | undefined);
+
       const userProfile: Profile = profileData
         ? {
             ...(rawProfile as unknown as Profile),
             displayName: resolvedDisplayName,
+            username: resolvedUsername,
+            avatarUrl: resolvedAvatarUrl,
           }
         : {
             id: authUser.id,
             email: authUser.email || '',
             displayName: resolvedDisplayName,
+            username: resolvedUsername,
+            avatarUrl: resolvedAvatarUrl,
             createdAt: authUser.created_at,
             updatedAt: authUser.created_at,
           };
@@ -72,6 +85,8 @@ export function useUser(): UserContextState {
         id: authUser.id,
         email: userProfile.email,
         displayName: userProfile.displayName,
+        username: userProfile.username,
+        avatarUrl: userProfile.avatarUrl,
       });
 
       // Sync live records from Supabase

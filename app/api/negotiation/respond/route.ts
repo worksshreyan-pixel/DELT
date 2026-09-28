@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { resolveDealByCode, requireCreatorDealAccess, requireClientDealAccess } from '@/lib/deal-auth';
+import { getClientDealUrl, getCreatorDealUrl, getCreatorUsername } from '@/lib/deal-url';
 
 export async function POST(request: Request) {
   try {
@@ -11,10 +12,48 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid proposal response data' }, { status: 400 });
     }
 
+    // 1. Canonical deal identity resolution
+    const resolution = await resolveDealByCode(dealId);
+    if (!resolution || !resolution.deal) {
+      return NextResponse.json({ error: 'Deal not found' }, { status: 404 });
+    }
+
+    const deal = resolution.deal;
     const admin = createAdminClient();
+
+    // 2. Agreement status check: Negotiation closed once agreement is accepted
+    const { data: acceptedContract } = await admin
+      .from('deal_contracts')
+      .select('id, status')
+      .eq('deal_id', deal.id)
+      .eq('status', 'accepted')
+      .maybeSingle();
+
+    if (acceptedContract) {
+      return NextResponse.json(
+        { error: 'Negotiation is closed because the agreement has already been accepted.' },
+        { status: 400 }
+      );
+    }
+
+    // 3. Robust role-based authorization
+    if (responderRole === 'client') {
+      const clientAuth = await requireClientDealAccess(request, dealId);
+      if (!clientAuth.authorized) {
+        return NextResponse.json({ error: 'Unauthorized client access.' }, { status: 403 });
+      }
+    } else if (responderRole === 'creator') {
+      const creatorAuth = await requireCreatorDealAccess(dealId);
+      if (!creatorAuth.authorized) {
+        return NextResponse.json({ error: 'Unauthorized creator access.' }, { status: 403 });
+      }
+    } else {
+      return NextResponse.json({ error: 'Invalid responderRole parameter.' }, { status: 400 });
+    }
+
     const now = new Date().toISOString();
 
-    // 1. Fetch proposal
+    // 4. Fetch proposal
     const { data: proposal, error: propError } = await admin
       .from('price_proposals')
       .select('*')
@@ -29,44 +68,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Proposal has already been resolved' }, { status: 400 });
     }
 
-    // 2. Fetch deal
-    const { data: deal, error: dealError } = await admin
-      .from('deals')
-      .select('*')
-      .eq('id', dealId)
-      .maybeSingle();
-
-    if (dealError || !deal) {
-      return NextResponse.json({ error: 'Deal not found' }, { status: 404 });
-    }
-
-    const supabase = await createServerSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    // Check client session token from header
-    const clientSessionHeader = request.headers.get('x-client-session-token');
-    const { verifyClientSessionToken } = await import('@/lib/otp');
-    const hasValidClientToken = clientSessionHeader && deal.token
-      ? verifyClientSessionToken(clientSessionHeader, deal.token, deal.client_email)
-      : false;
-
-    const isCreator = user && user.id === deal.creator_id;
-    const isClient = (user && user.email?.toLowerCase() === deal.client_email?.toLowerCase()) || hasValidClientToken;
-
-    if (responderRole === 'client') {
-      if (isCreator) {
-        return NextResponse.json({ error: 'Creators cannot respond to proposals as client.' }, { status: 403 });
-      }
-      if (!isClient) {
-        return NextResponse.json({ error: 'Unauthorized client access.' }, { status: 403 });
-      }
-    } else if (responderRole === 'creator') {
-      if (!isCreator) {
-        return NextResponse.json({ error: 'Unauthorized creator access.' }, { status: 403 });
-      }
-    }
-
-    // 3. Update proposal state
+    // 5. Update proposal state
     const newState = response === 'accept' ? 'accepted' : 'declined';
     await admin
       .from('price_proposals')
@@ -77,7 +79,7 @@ export async function POST(request: Request) {
       .eq('id', proposal.id);
 
     if (response === 'accept') {
-      // 4. Update deal authoritative agreed price
+      // 6. Update deal authoritative agreed price
       await admin
         .from('deals')
         .update({
@@ -88,7 +90,7 @@ export async function POST(request: Request) {
         })
         .eq('id', deal.id);
 
-      // 5. Audit event
+      // 7. Audit event
       await admin.from('deal_events').insert({
         deal_id: deal.id,
         type: 'price_accepted',
@@ -97,7 +99,7 @@ export async function POST(request: Request) {
         description: `Price proposal of ${proposal.proposed_price} ${deal.currency} accepted by ${responderName}.`,
       });
 
-      // 6. System message
+      // 8. System message
       await admin.from('deal_messages').insert({
         deal_id: deal.id,
         sender_id: 'system',
@@ -126,7 +128,7 @@ export async function POST(request: Request) {
       });
     }
 
-    // 7. Transactional Email Notification
+    // 9. Transactional Email Notification
     try {
       const isClientResponder = responderRole === 'client';
       const { sendProposalStatusEmail } = await import('@/lib/email');
@@ -136,7 +138,7 @@ export async function POST(request: Request) {
         const { data: creatorProfile } = await admin
           .from('profiles')
           .select('email, display_name')
-          .eq('id', deal.creator_id)
+          .eq('id', deal.creatorId)
           .maybeSingle();
 
         if (creatorProfile?.email) {
@@ -148,21 +150,21 @@ export async function POST(request: Request) {
             price: Number(proposal.proposed_price),
             currency: deal.currency || 'INR',
             accepted: response === 'accept',
-            dealUrl: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/deals/${deal.id}`,
+            dealUrl: getCreatorDealUrl(deal.dealCode || deal.id),
           });
         }
       } else {
         // Notify Client
-        if (deal.client_email) {
+        if (deal.clientEmail) {
           await sendProposalStatusEmail({
-            recipientName: deal.client_name || 'Client',
-            recipientEmail: deal.client_email,
+            recipientName: deal.clientName || 'Client',
+            recipientEmail: deal.clientEmail,
             responderName: responderName || 'Creator',
             dealTitle: deal.title,
             price: Number(proposal.proposed_price),
             currency: deal.currency || 'INR',
             accepted: response === 'accept',
-            dealUrl: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/deal/${deal.token}`,
+            dealUrl: getClientDealUrl(deal.dealCode || deal.token || deal.id, getCreatorUsername(resolution.creator)),
           });
         }
       }

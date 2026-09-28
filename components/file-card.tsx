@@ -43,23 +43,23 @@ export function FileCard({ file, locked }: FileCardProps) {
         {locked ? <Lock className="h-4 w-4 text-muted-foreground" /> : <Icon className="h-4 w-4 text-primary" />}
       </div>
       <div className="flex-1 min-w-0 overflow-hidden">
-        <p className="text-sm font-medium truncate" title={file.name}>{file.name}</p>
+        <p className="text-sm font-semibold text-foreground truncate" title={file.name}>{file.name}</p>
         <div className="flex items-center gap-2 mt-0.5">
           <p className="text-xs text-muted-foreground">{formatBytes(file.size)}</p>
           {file.previewStatus === 'ready' && (
-            <span className="text-[10px] text-emerald-500 font-medium bg-emerald-500/10 px-1.5 py-0.5 rounded-md">
+            <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded-md">
               Preview ready
             </span>
           )}
           {file.previewStatus === 'failed' && (
-            <span className="text-[10px] text-red-500 font-medium bg-red-500/10 px-1.5 py-0.5 rounded-md">
+            <span className="text-xs text-red-600 dark:text-red-400 font-semibold bg-red-500/10 px-2 py-0.5 rounded-md">
               Preview unavailable
             </span>
           )}
         </div>
       </div>
       {!locked && (
-        <button className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity hover:bg-accent">
+        <button className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity hover:bg-accent">
           <Download className="h-4 w-4" />
         </button>
       )}

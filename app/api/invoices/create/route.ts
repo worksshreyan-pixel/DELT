@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     let invoiceError: any = null;
     
     for (let attempt = 0; attempt < 5; attempt++) {
-      const invoiceNumber = `INV-${Array.from({length: 8}, () => 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'[Math.floor(Math.random() * 36)]).join('')}`;
+      const invoiceNumber = `DELT-INV-${Array.from({length: 6}, () => 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'[Math.floor(Math.random() * 36)]).join('')}`;
       
       const { data, error } = await admin
         .from('invoices')
@@ -99,6 +99,16 @@ export async function POST(request: Request) {
       amount_due: deal.price || 0,
       updated_at: new Date().toISOString(),
     }).eq('id', invoice.id);
+
+    // Record audit event
+    await admin.from('deal_events').insert({
+      deal_id: deal.id,
+      type: 'invoice_created',
+      actor_id: user.id,
+      actor_name: user.user_metadata?.displayName || 'Creator',
+      actor_role: 'creator',
+      description: `Draft invoice ${invoice.invoice_number} created.`,
+    });
 
     // Fetch the updated invoice with items
     const { data: updatedInvoice } = await admin

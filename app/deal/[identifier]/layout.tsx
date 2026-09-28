@@ -1,7 +1,8 @@
 import { redirect } from 'next/navigation';
 import { resolveDealByCode } from '@/lib/deal-auth';
+import { getCreatorUsername } from '@/lib/deal-url';
 
-export default async function DealLayout({
+export default async function LegacyDealLayout({
   children,
   params,
 }: {
@@ -9,16 +10,14 @@ export default async function DealLayout({
   params: Promise<{ identifier: string }>;
 }) {
   const { identifier } = await params;
-  
-  // If it's a UUID/old token format, try to resolve and redirect
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
-  const isOldToken = identifier.startsWith('dlt_') && identifier.length > 20;
 
-  if (isUuid || isOldToken) {
+  if (identifier) {
     const resolution = await resolveDealByCode(identifier);
-    if (resolution && resolution.deal.dealCode) {
-      // 307 Temporary Redirect to the canonical deal code URL
-      redirect(`/deal/${resolution.deal.dealCode}`);
+    if (resolution && resolution.deal) {
+      const creatorUsername = getCreatorUsername(resolution.creator);
+      const dealCode = resolution.deal.dealCode || resolution.deal.token;
+      // Redirect legacy /deal/{identifier} to canonical /{creatorUsername}/{dealCode}
+      redirect(`/${encodeURIComponent(creatorUsername)}/${encodeURIComponent(dealCode)}`);
     }
   }
 

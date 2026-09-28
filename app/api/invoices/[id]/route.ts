@@ -85,36 +85,58 @@ export async function PUT(
     const now = new Date().toISOString();
     let subtotal = 0;
 
-    // Process items (delete old ones and recreate, or update)
-    // For simplicity, we delete existing and re-insert
-    await admin.from('invoice_items').delete().eq('invoice_id', id);
-
+    // Validate and process line items
     if (items && Array.isArray(items) && items.length > 0) {
+      for (const item of items) {
+        const qty = parseInt(item.quantity);
+        const price = parseFloat(item.unitPrice);
+        if (isNaN(qty) || qty < 1) {
+          return NextResponse.json({ error: 'Line item quantity must be a positive integer.' }, { status: 400 });
+        }
+        if (isNaN(price) || price < 0) {
+          return NextResponse.json({ error: 'Line item unit price cannot be negative.' }, { status: 400 });
+        }
+      }
+
+      await admin.from('invoice_items').delete().eq('invoice_id', id);
+
       const itemsToInsert = items.map((item: any, index: number) => {
-        const qty = Math.max(0, parseInt(item.quantity) || 0);
+        const qty = Math.max(1, parseInt(item.quantity) || 1);
         const price = Math.max(0, parseFloat(item.unitPrice) || 0);
-        const lineTotal = qty * price;
+        const lineTotal = Math.round(qty * price * 100) / 100;
         subtotal += lineTotal;
         return {
           invoice_id: id,
-          description: item.description || '',
+          description: (item.description || '').trim() || 'Item',
           quantity: qty,
           unit_price: price,
           line_total: lineTotal,
           sort_order: index,
         };
       });
+
+      subtotal = Math.round(subtotal * 100) / 100;
       await admin.from('invoice_items').insert(itemsToInsert);
     }
 
-    const validDiscount = Math.max(0, parseFloat(discountAmount) || 0);
-    const validTax = Math.max(0, parseFloat(taxAmount) || 0);
+    const rawDiscount = parseFloat(discountAmount);
+    const rawTax = parseFloat(taxAmount);
+
+    if (!isNaN(rawDiscount) && rawDiscount < 0) {
+      return NextResponse.json({ error: 'Discount amount cannot be negative.' }, { status: 400 });
+    }
+    if (!isNaN(rawTax) && rawTax < 0) {
+      return NextResponse.json({ error: 'Tax amount cannot be negative.' }, { status: 400 });
+    }
+
+    const validDiscount = Math.round((Math.max(0, isNaN(rawDiscount) ? 0 : rawDiscount)) * 100) / 100;
+    const validTax = Math.round((Math.max(0, isNaN(rawTax) ? 0 : rawTax)) * 100) / 100;
     
     if (validDiscount > subtotal) {
       return NextResponse.json({ error: 'Discount cannot exceed subtotal.' }, { status: 400 });
     }
     
-    const totalAmount = Math.max(0, subtotal - validDiscount + validTax);
+    const totalAmount = Math.round((subtotal - validDiscount + validTax) * 100) / 100;
 
     await admin.from('invoices').update({
       notes: notes || null,
@@ -125,7 +147,7 @@ export async function PUT(
       tax_amount: validTax,
       subtotal: subtotal,
       total_amount: totalAmount,
-      amount_due: totalAmount, // For draft, amount_due is total
+      amount_due: totalAmount,
       updated_at: now,
     }).eq('id', id);
 

@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { verifyClientSessionToken } from '@/lib/otp';
+import { requireClientDealAccess } from '@/lib/deal-auth';
+import { isUuid } from '@/lib/utils';
 import { storageRegistry } from '@/lib/storage/registry';
 import { SupabaseStorageProvider } from '@/lib/storage/providers/supabase-provider';
 
@@ -25,10 +26,13 @@ export async function POST(request: Request) {
       }
 
       const admin = createAdminClient();
-      const { data: deal, error: dealError } = await admin
-        .from('deals')
-        .select('*')
-        .eq('id', dealId)
+      let dealQuery = admin.from('deals').select('*');
+      if (isUuid(dealId)) {
+        dealQuery = dealQuery.eq('id', dealId);
+      } else {
+        dealQuery = dealQuery.or(`deal_code.eq.${dealId},token.eq.${dealId}`);
+      }
+      const { data: deal, error: dealError } = await dealQuery
         .eq('creator_id', user.id)
         .maybeSingle();
 
@@ -77,31 +81,13 @@ export async function POST(request: Request) {
     }
 
     // 2. Validate Authorization
-    const expectedClientEmail = (deal.client_email || '').trim().toLowerCase();
-    const creatorId = deal.creator_id;
-
-    // Check creator session
     const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
 
-    // Check client session token
-    const clientSessionHeader = request.headers.get('x-client-session-token');
-    const hasValidClientToken = clientSessionHeader
-      ? verifyClientSessionToken(clientSessionHeader, deal.token, expectedClientEmail)
-      : false;
+    const isAuthorizedCreator = Boolean(user && user.id === deal.creator_id);
+    const clientAuth = await requireClientDealAccess(request, deal.id);
+    const isAuthorizedClient = Boolean(clientAuth.authorized);
 
-    let isAuthorizedCreator = false;
-    let isAuthorizedClient = false;
-
-    if (user) {
-      const userEmail = (user.email || '').trim().toLowerCase();
-      isAuthorizedClient = userEmail === expectedClientEmail;
-      isAuthorizedCreator = user.id === creatorId;
-    } else if (hasValidClientToken) {
-      isAuthorizedClient = true;
-    }
-
-    // Guard access
     if (isCreator && !isAuthorizedCreator) {
       return NextResponse.json({ error: 'Unauthorized creator access' }, { status: 403 });
     }
@@ -113,13 +99,13 @@ export async function POST(request: Request) {
     const { data: fileVersions } = await admin
       .from('file_versions')
       .select('*')
-      .eq('deal_id', dealId);
+      .eq('deal_id', deal.id);
 
     let targetFileItem: any = null;
     if (fileVersions) {
       for (const version of fileVersions) {
         const filesList = Array.isArray(version.files) ? version.files : [];
-        const found = filesList.find((f: any) => f.path === filePath);
+        const found = filesList.find((f: any) => f.path === filePath || f.externalId === filePath || f.id === filePath);
         if (found) {
           targetFileItem = found;
           break;
@@ -136,26 +122,72 @@ export async function POST(request: Request) {
       }
     }
 
-    // 4. Check payment authorization for clients
+    // 4. Check payment authorization or OPEN_ORIGINAL preview mode authorization for clients
     const isPaid = deal.payment_status === 'paid' || deal.status === 'completed';
-    if (!isCreator && !isAuthorizedCreator && !isPaid) {
+    const parsedDesc = typeof deal.description === 'string' ? deal.description : '';
+    const isPreviewEnabled = Boolean(deal.preview_enabled || parsedDesc.includes('[PREVIEW_ENABLED:true]'));
+    const isOriginalDownloadAllowedForUnpaid = isPreviewEnabled && deal.preview_mode === 'OPEN_ORIGINAL';
+
+    if (!isCreator && !isAuthorizedCreator && !isPaid && !isOriginalDownloadAllowedForUnpaid) {
       return NextResponse.json(
         { error: 'Files are locked. Complete payment to download deliverables.' },
         { status: 403 }
       );
     }
 
-    // 5. Generate short-lived signed URL (60 seconds) from provider
-    // Check if targetFileItem specifies ownership/provider
-    const ownershipType = targetFileItem?.ownershipType || 'DELT_MANAGED';
-    const providerId = targetFileItem?.provider || 'supabase';
-    
-    const provider = storageRegistry.getProvider(providerId);
-    
-    // The provider's getAccessUrl returns a temporary URL
-    const accessUrl = await provider.getAccessUrl('system', filePath);
+    // 5. Query storage_objects to resolve authoritative provider & external details
+    const { data: storageObjects } = await admin
+      .from('storage_objects')
+      .select('*')
+      .eq('deal_id', deal.id);
 
-    return NextResponse.json({ signedUrl: accessUrl });
+    let storageObj = storageObjects?.find(
+      (so: any) =>
+        so.object_path === filePath ||
+        so.external_object_id === filePath ||
+        (targetFileItem && targetFileItem.externalId && so.external_object_id === targetFileItem.externalId) ||
+        (targetFileItem && targetFileItem.id && so.id === targetFileItem.id)
+    );
+
+    const providerId = storageObj?.provider || targetFileItem?.provider || deal.storage_provider || 'supabase';
+
+    if (providerId === 'google_drive') {
+      const externalObjectId = storageObj?.external_object_id || targetFileItem?.externalId || filePath;
+      const provider = storageRegistry.getProvider('google_drive');
+      
+      try {
+        const accessUrl = await provider.getAccessUrl(deal.creator_id, externalObjectId);
+        return NextResponse.json({
+          type: 'external_url',
+          signedUrl: accessUrl,
+          url: accessUrl,
+          provider: 'google_drive',
+        });
+      } catch (gdErr: any) {
+        return NextResponse.json(
+          { error: gdErr?.message || 'This Google Drive file is no longer available.' },
+          { status: 404 }
+        );
+      }
+    }
+
+    // Default: Supabase storage provider
+    try {
+      const provider = storageRegistry.getProvider('supabase');
+      const accessUrl = await provider.getAccessUrl(deal.creator_id, filePath);
+
+      return NextResponse.json({
+        type: 'signed_url',
+        signedUrl: accessUrl,
+        url: accessUrl,
+        provider: 'supabase',
+      });
+    } catch (spErr: any) {
+      return NextResponse.json(
+        { error: 'This DELT file is no longer available.' },
+        { status: 404 }
+      );
+    }
   } catch (error: any) {
     console.error('Error generating signed URL:', error);
     return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 });

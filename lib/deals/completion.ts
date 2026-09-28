@@ -1,4 +1,5 @@
 import { sendPaymentConfirmationEmail } from '@/lib/email';
+import { getClientDealUrl, getCreatorDealUrl, getCreatorUsername } from '@/lib/deal-url';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export interface FinalizePaymentParams {
@@ -96,50 +97,96 @@ export async function finalizeDealPayment({
     date: now,
   });
 
-  // 3.5. Create Finalized Invoice
-  // Determine exact financial snapshot
+  // 3.5. Update or Create Finalized Invoice
   const originalAmount = Number(deal.price);
   const finalAmount = amountOverride !== undefined ? amountOverride : originalAmount;
   const discountAmount = originalAmount - finalAmount;
 
-  // Generate short unique invoice number (e.g. INV-XDGPRD9E)
-  const randomChars = Math.random().toString(36).substring(2, 10).toUpperCase();
-  const invoiceNumber = `INV-${randomChars}`;
+  // Check if an existing invoice exists for this deal
+  const { data: existingInvoice } = await supabase
+    .from('invoices')
+    .select('*')
+    .eq('deal_id', deal.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-  await supabase.from('invoices').insert({
-    invoice_number: invoiceNumber,
-    deal_id: deal.id,
-    creator_id: deal.creator_id,
-    client_id: deal.client_id,
-    status: 'paid',
-    type: 'standard',
-    currency: deal.currency,
-    issue_date: now,
-    due_date: now,
-    subtotal: originalAmount,
-    discount_amount: discountAmount,
-    tax_amount: 0,
-    total_amount: finalAmount,
-    amount_paid: finalAmount,
-    amount_due: 0,
-    promo_code: promoCode || null,
-    payment_id: paymentId || null,
-    order_id: orderId || null,
-    paid_at: now,
-    created_at: now,
-    updated_at: now,
-  });
+  if (existingInvoice) {
+    await supabase
+      .from('invoices')
+      .update({
+        status: 'paid',
+        amount_paid: finalAmount,
+        amount_due: 0,
+        payment_id: paymentId || null,
+        order_id: orderId || null,
+        promo_code: promoCode || null,
+        paid_at: now,
+        updated_at: now,
+      })
+      .eq('id', existingInvoice.id);
+  } else {
+    // Generate short unique invoice number
+    const randomChars = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const invoiceNumber = `DELT-INV-${randomChars}`;
 
-  // 4. Create audit timeline event
-  await supabase.from('deal_events').insert({
-    deal_id: deal.id,
-    type: 'payment_completed',
-    actor_id: deal.client_email,
-    actor_name: deal.client_name,
-    actor_role: 'client',
-    description: description,
-    metadata: { orderId, paymentId },
-  });
+    const { data: newInvoice } = await supabase.from('invoices').insert({
+      invoice_number: invoiceNumber,
+      deal_id: deal.id,
+      creator_id: deal.creator_id,
+      client_id: deal.client_id,
+      status: 'paid',
+      type: 'standard',
+      currency: deal.currency || 'INR',
+      issue_date: now,
+      due_date: now,
+      subtotal: originalAmount,
+      discount_amount: discountAmount,
+      tax_amount: 0,
+      total_amount: finalAmount,
+      amount_paid: finalAmount,
+      amount_due: 0,
+      promo_code: promoCode || null,
+      payment_id: paymentId || null,
+      order_id: orderId || null,
+      paid_at: now,
+      created_at: now,
+      updated_at: now,
+    }).select().maybeSingle();
+
+    if (newInvoice) {
+      await supabase.from('invoice_items').insert({
+        invoice_id: newInvoice.id,
+        description: deal.title || 'Professional Services',
+        quantity: 1,
+        unit_price: originalAmount,
+        line_total: originalAmount,
+        sort_order: 0,
+      });
+    }
+  }
+
+  // 4. Create audit timeline events
+  await supabase.from('deal_events').insert([
+    {
+      deal_id: deal.id,
+      type: 'payment_completed',
+      actor_id: deal.client_email,
+      actor_name: deal.client_name,
+      actor_role: 'client',
+      description: description,
+      metadata: { orderId, paymentId },
+    },
+    {
+      deal_id: deal.id,
+      type: 'invoice_paid',
+      actor_id: deal.client_email,
+      actor_name: deal.client_name,
+      actor_role: 'client',
+      description: `Invoice paid in full (${finalAmount} ${deal.currency || 'INR'}).`,
+      metadata: { orderId, paymentId },
+    }
+  ]);
 
   // 5. Post system chat message
   await supabase.from('deal_messages').insert({
@@ -166,12 +213,13 @@ export async function finalizeDealPayment({
   try {
     const { data: creatorProfile } = await supabase
       .from('profiles')
-      .select('email, display_name')
+      .select('username, email, display_name')
       .eq('id', deal.creator_id)
       .maybeSingle();
 
     const creatorDisplayName = creatorProfile?.display_name || 'Creator';
-    const canonicalDealUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/deal/${deal.token}`;
+    const creatorUsername = getCreatorUsername(creatorProfile);
+    const canonicalDealUrl = getClientDealUrl(deal.code || deal.token || deal.id, creatorUsername);
 
     // Email to Client
     await sendPaymentConfirmationEmail({
@@ -197,7 +245,7 @@ export async function finalizeDealPayment({
         currency: deal.currency || 'INR',
         transactionId: txId,
         isCreator: true,
-        dealUrl: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/deals/${deal.id}`,
+        dealUrl: getCreatorDealUrl(deal.code || deal.id),
       });
     }
   } catch (emailErr) {

@@ -37,26 +37,24 @@ export async function POST(
 
     const now = new Date().toISOString();
 
-    // Transition to SENT
+    // Transition to issued
     await admin.from('invoices').update({
-      status: 'sent',
+      status: 'issued',
+      issue_date: now,
       updated_at: now,
     }).eq('id', id);
 
     // Record Deal Event
     await admin.from('deal_events').insert({
       deal_id: invoice.deal_id,
-      type: 'invoice_sent',
+      type: 'invoice_issued',
       actor_id: user.id,
       actor_name: user.user_metadata?.displayName || 'Creator',
       actor_role: 'creator',
-      description: `Invoice ${invoice.invoice_number} sent for ${invoice.total_amount}.`,
+      description: `Invoice ${invoice.invoice_number} issued for ${invoice.total_amount}.`,
     });
 
-    // We can also create a notification here or send an email.
-    // For now, rely on standard deal event propagation.
-
-    return NextResponse.json({ success: true, status: 'sent' });
+    return NextResponse.json({ success: true, status: 'issued' });
   } catch (error: any) {
     console.error('Error sending invoice:', error);
     return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 });

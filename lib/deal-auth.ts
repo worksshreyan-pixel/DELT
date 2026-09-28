@@ -2,25 +2,32 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
-import { parseDescription } from '@/lib/utils';
+import { parseDescription, isUuid } from '@/lib/utils';
 import { verifyClientSessionToken } from '@/lib/otp'; // We'll keep this for legacy tokens
 
-export async function resolveDealByCode(dealCode: string) {
+export async function resolveDealByCode(identifier: string) {
+  if (!identifier || typeof identifier !== 'string') return null;
+  const cleanId = identifier.trim();
   const admin = createAdminClient();
+
+  const queryFilter = isUuid(cleanId)
+    ? `id.eq.${cleanId},token.eq.${cleanId}`
+    : `deal_code.eq.${cleanId},deal_code.ilike.${cleanId},token.eq.${cleanId}`;
+
   const { data: deal, error } = await admin
     .from('deals')
     .select('*')
-    .eq('deal_code', dealCode)
+    .or(queryFilter)
     .maybeSingle();
 
   if (error || !deal) {
     return null;
   }
 
-  // Fetch creator profile for display
+  // Fetch creator profile for display & URL resolution
   const { data: creator } = await admin
     .from('profiles')
-    .select('display_name, email, profession, company')
+    .select('display_name, email, profession, company, username')
     .eq('id', deal.creator_id)
     .maybeSingle();
 
@@ -45,6 +52,8 @@ export async function resolveDealByCode(dealCode: string) {
     createdAt: deal.created_at,
     completedAt: deal.completed_at,
     previewEnabled: parsed.previewEnabled,
+    previewMode: deal.preview_mode || 'AUTO',
+    storageProvider: deal.storage_provider || 'supabase',
     projectStructure: deal.project_structure || 'scope_and_milestones',
   };
 
@@ -65,9 +74,15 @@ export async function requireCreatorDealAccess(dealCode: string) {
   }
 
   const { deal, creator } = resolution;
+  const userEmail = (user.email || '').trim().toLowerCase();
+  const creatorProfileEmail = (creator?.email || '').trim().toLowerCase();
+  const dealCreatorId = (deal.creatorId || '').trim().toLowerCase();
+  const currentUserId = (user.id || '').trim().toLowerCase();
+
   const isCreator = Boolean(
-    user.id === deal.creatorId ||
-    (user.email && creator?.email && user.email.toLowerCase() === creator.email.toLowerCase())
+    (currentUserId && dealCreatorId && currentUserId === dealCreatorId) ||
+    (userEmail && creatorProfileEmail && userEmail === creatorProfileEmail) ||
+    (userEmail && dealCreatorId && userEmail === dealCreatorId)
   );
 
   if (!isCreator) {
@@ -143,20 +158,16 @@ export async function requireClientDealAccess(request: Request, dealCode: string
     }
   }
 
-  // 3. Fallback to Supabase Auth user (if creator is viewing client portal or testing)
+  // 3. Fallback to Supabase Auth user (if user's email matches client email)
   const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (user) {
     const userEmail = (user.email || '').trim().toLowerCase();
-    const isAuthorizedClient = Boolean(userEmail && userEmail === expectedClientEmail);
-    const isCreator = Boolean(
-      user.id === deal.creatorId ||
-      (user.email && creator?.email && user.email.toLowerCase() === creator.email.toLowerCase())
-    );
+    const isAuthorizedClient = Boolean(userEmail && expectedClientEmail && userEmail === expectedClientEmail);
 
-    if (isAuthorizedClient || isCreator) {
-      return { authorized: true, deal, creator, clientEmail: expectedClientEmail, isCreator };
+    if (isAuthorizedClient) {
+      return { authorized: true, deal, creator, clientEmail: expectedClientEmail };
     }
   }
 

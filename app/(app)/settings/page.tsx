@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTheme } from 'next-themes';
 import {
   User,
   Shield,
@@ -12,15 +13,20 @@ import {
   Monitor,
   LogOut,
   AlertCircle,
+  Sun,
+  Moon,
+  Palette,
 } from 'lucide-react';
 import { PageHeader } from '@/components/app-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useRef } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { validateUsername, normalizeUsername, generateDefaultAvatarDataUrl } from '@/lib/deal-url';
 import { UsageMeter } from '@/components/usage-meter';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAppStore, clearStoreState } from '@/lib/app-store';
@@ -28,9 +34,12 @@ import { useUser } from '@/hooks/use-user';
 import { createClient } from '@/lib/supabase/client';
 import { hasSupabasePublicConfig } from '@/lib/env';
 import { PLANS, formatCurrency } from '@/lib/plans';
+import { cn } from '@/lib/utils';
+import { BillingFinancialCenter } from '@/components/billing-financial-center';
 
 const sections = [
   { id: 'profile', label: 'Profile', icon: User },
+  { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'security', label: 'Security', icon: Shield },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'billing', label: 'Billing', icon: CreditCard },
@@ -45,14 +54,25 @@ export default function SettingsPage() {
   const router = useRouter();
   const store = useAppStore();
   const { user, profile, signOut, refresh } = useUser();
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
-  const [profileName, setProfileName] = useState(profile?.displayName || store.user.displayName || '');
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const [profileUsername, setProfileUsername] = useState(profile?.username || store.user.username || 'creator');
+  const [profileDisplayName, setProfileDisplayName] = useState(profile?.displayName || store.user.displayName || '');
   const [profileEmail, setProfileEmail] = useState(profile?.email || store.user.email || '');
   const [profileCompany, setProfileCompany] = useState(profile?.company || store.user.company || '');
   const [profileProfession, setProfileProfession] = useState(profile?.profession || store.user.profession || '');
   const [profileBio, setProfileBio] = useState(profile?.bio || store.user.bio || '');
+  const [avatarUrl, setAvatarUrl] = useState(profile?.avatarUrl || store.user.avatarUrl || '');
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [profileError, setProfileError] = useState('');
 
   // Password update state
   const [newPassword, setNewPassword] = useState('');
@@ -71,42 +91,108 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (profile) {
-      setProfileName(profile.displayName || '');
+      setProfileUsername(profile.username || 'creator');
+      setProfileDisplayName(profile.displayName || '');
       setProfileEmail(profile.email || '');
       setProfileCompany(profile.company || '');
       setProfileProfession(profile.profession || '');
       setProfileBio(profile.bio || '');
+      setAvatarUrl(profile.avatarUrl || '');
     } else if (user) {
-      setProfileName(user.user_metadata?.displayName || '');
+      const derivedUser = user.email?.split('@')[0].replace(/[^a-z0-9_-]/gi, '').toLowerCase() || 'creator';
+      setProfileUsername(derivedUser);
+      setProfileDisplayName(user.user_metadata?.displayName || '');
       setProfileEmail(user.email || '');
     }
   }, [profile, user]);
 
   const plan = PLANS[store.credits.planId] || PLANS.free;
 
+  async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setProfileError('');
+    if (file.size > 2 * 1024 * 1024) {
+      setProfileError('Avatar file size must not exceed 2MB.');
+      return;
+    }
+
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
+    if (!allowed.includes(file.type)) {
+      setProfileError('Invalid image format. Please select a JPG, PNG, WebP, or SVG image.');
+      return;
+    }
+
+    setAvatarUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch('/api/profile/avatar', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setProfileError(data.error || 'Failed to upload avatar.');
+        setAvatarUploading(false);
+        return;
+      }
+
+      setAvatarUrl(data.avatarUrl);
+      await refresh();
+    } catch (err: any) {
+      console.error('Avatar upload error:', err);
+      setProfileError('An unexpected error occurred during avatar upload.');
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
+
   async function handleSaveProfile(e: React.FormEvent) {
     e.preventDefault();
+    setProfileError('');
     setSaving(true);
 
-    if (hasSupabasePublicConfig() && user) {
-      const supabase = createClient();
-      await supabase
-        .from('profiles')
-        .upsert({
-          id: user.id,
-          email: profileEmail,
-          display_name: profileName,
+    const valResult = validateUsername(profileUsername);
+    if (!valResult.valid) {
+      setProfileError(valResult.error || 'Invalid username.');
+      setSaving(false);
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: profileUsername,
+          displayName: profileDisplayName || profileUsername,
           company: profileCompany,
           profession: profileProfession,
           bio: profileBio,
-          updated_at: new Date().toISOString(),
-        });
-      await refresh();
-    }
+          avatarUrl: avatarUrl,
+        }),
+      });
 
-    setSaved(true);
-    setSaving(false);
-    setTimeout(() => setSaved(false), 2500);
+      const data = await res.json();
+      if (!res.ok) {
+        setProfileError(data.error || 'Failed to save profile.');
+        setSaving(false);
+        return;
+      }
+
+      await refresh();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err: any) {
+      console.error('Save profile error:', err);
+      setProfileError('Failed to update profile.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleUpdatePassword(e: React.FormEvent) {
@@ -171,21 +257,65 @@ export default function SettingsPage() {
             <CardHeader><CardTitle className="text-base">Profile Details</CardTitle></CardHeader>
             <CardContent>
               <form onSubmit={handleSaveProfile} className="space-y-5">
+                <input
+                  type="file"
+                  ref={avatarInputRef}
+                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                  onChange={handleAvatarUpload}
+                  className="hidden"
+                />
                 <div className="flex items-center gap-4">
                   <Avatar className="h-16 w-16">
+                    <AvatarImage
+                      src={avatarUrl || generateDefaultAvatarDataUrl(profileUsername || profileDisplayName)}
+                      alt={profileDisplayName || profileUsername}
+                    />
                     <AvatarFallback className="bg-primary text-primary-foreground text-lg">
-                      {getInitials(profileName)}
+                      {getInitials(profileDisplayName || profileUsername)}
                     </AvatarFallback>
                   </Avatar>
                   <div>
-                    <Button type="button" variant="outline" size="sm">Change avatar</Button>
-                    <p className="text-xs text-muted-foreground mt-1.5">JPG or PNG. Max 2MB.</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={avatarUploading}
+                      onClick={() => avatarInputRef.current?.click()}
+                    >
+                      {avatarUploading ? 'Uploading...' : 'Change avatar'}
+                    </Button>
+                    <p className="text-xs text-muted-foreground mt-1.5">JPG, PNG, WebP or SVG. Max 2MB.</p>
                   </div>
                 </div>
+
+                {profileError && (
+                  <div className="flex items-center gap-2 rounded-lg bg-destructive/10 p-2.5 text-xs text-destructive">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    <span>{profileError}</span>
+                  </div>
+                )}
+
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="name">Full name</Label>
-                    <Input id="name" value={profileName} onChange={(e) => setProfileName(e.target.value)} required />
+                    <Label htmlFor="username">Username</Label>
+                    <Input
+                      id="username"
+                      value={profileUsername}
+                      onChange={(e) => setProfileUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/gi, ''))}
+                      required
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Canonical deal URL: <span className="font-mono text-foreground">https://delt.website/{profileUsername || 'username'}/DLT-XXXXX</span>
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="displayName">Display Name</Label>
+                    <Input
+                      id="displayName"
+                      value={profileDisplayName}
+                      onChange={(e) => setProfileDisplayName(e.target.value)}
+                      placeholder="e.g. Shreyan Studio"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
@@ -195,6 +325,8 @@ export default function SettingsPage() {
                     <Label htmlFor="company">Business / Studio name</Label>
                     <Input id="company" placeholder="e.g. Acme Design Studio" value={profileCompany} onChange={(e) => setProfileCompany(e.target.value)} />
                   </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="profession">Profession</Label>
                     <Input id="profession" placeholder="e.g. Freelance Web Developer" value={profileProfession} onChange={(e) => setProfileProfession(e.target.value)} />
@@ -211,6 +343,66 @@ export default function SettingsPage() {
                   </Button>
                 </div>
               </form>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Appearance */}
+        <TabsContent value="appearance" className="mt-4">
+          <Card className="max-w-2xl">
+            <CardHeader>
+              <CardTitle className="text-base">Appearance</CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Choose how DELT looks on your device.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Theme</Label>
+                <div className="grid grid-cols-3 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setTheme('light')}
+                    className={cn(
+                      'flex flex-col items-center justify-center p-4 rounded-xl border transition-all text-center gap-2.5',
+                      mounted && theme === 'light'
+                        ? 'border-primary bg-primary/10 text-foreground font-semibold shadow-xs'
+                        : 'border-border/60 bg-muted/20 text-muted-foreground hover:border-border hover:bg-muted/40 hover:text-foreground'
+                    )}
+                  >
+                    <Sun className="h-5 w-5 text-amber-500" />
+                    <span className="text-xs">Light</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setTheme('dark')}
+                    className={cn(
+                      'flex flex-col items-center justify-center p-4 rounded-xl border transition-all text-center gap-2.5',
+                      mounted && theme === 'dark'
+                        ? 'border-primary bg-primary/10 text-foreground font-semibold shadow-xs'
+                        : 'border-border/60 bg-muted/20 text-muted-foreground hover:border-border hover:bg-muted/40 hover:text-foreground'
+                    )}
+                  >
+                    <Moon className="h-5 w-5 text-blue-400" />
+                    <span className="text-xs">Dark</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setTheme('system')}
+                    className={cn(
+                      'flex flex-col items-center justify-center p-4 rounded-xl border transition-all text-center gap-2.5',
+                      mounted && theme === 'system'
+                        ? 'border-primary bg-primary/10 text-foreground font-semibold shadow-xs'
+                        : 'border-border/60 bg-muted/20 text-muted-foreground hover:border-border hover:bg-muted/40 hover:text-foreground'
+                    )}
+                  >
+                    <Monitor className="h-5 w-5 text-emerald-400" />
+                    <span className="text-xs">System</span>
+                  </button>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -340,40 +532,7 @@ export default function SettingsPage() {
 
         {/* Billing */}
         <TabsContent value="billing" className="mt-4">
-          <div className="space-y-4 max-w-2xl">
-            <Card>
-              <CardHeader><CardTitle className="text-base">Current Subscription</CardTitle></CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <p className="text-lg font-display font-semibold">{plan.name} Plan</p>
-                    <p className="text-sm text-muted-foreground">{plan.description}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-lg font-semibold">{plan.price ? `${formatCurrency(plan.price)}/mo` : 'Free'}</p>
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <UsageMeter used={store.credits.used} total={store.credits.total} label="Deal credits" unit="count" />
-                  <UsageMeter used={store.storage.totalBytes} total={store.storage.limitBytes} label="Storage" unit="bytes" />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader><CardTitle className="text-base">Payment Method</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                <div className="rounded-lg border border-dashed border-border p-6 text-center">
-                  <CreditCard className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">No payment method on file</p>
-                  <Button variant="outline" size="sm" className="mt-3">Add payment method</Button>
-                </div>
-                <p className="text-xs text-muted-foreground text-center">
-                  Subscription billing is ready for payment gateway integration.
-                </p>
-              </CardContent>
-            </Card>
-          </div>
+          <BillingFinancialCenter />
         </TabsContent>
       </Tabs>
     </div>

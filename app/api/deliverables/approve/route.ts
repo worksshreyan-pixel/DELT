@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { requireClientDealAccess } from '@/lib/deal-auth';
+import { isUsablePreviewAvailable } from '@/lib/preview-utils';
+import { parseDescription } from '@/lib/utils';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { dealId, dealCode, deliverableId, action, feedback, clientName } = body;
+    const { dealId, dealCode, deliverableId, versionId, action, feedback, clientName } = body;
 
     if (!dealId || !dealCode || !deliverableId || !action || !['approve', 'request_changes'].includes(action)) {
       return NextResponse.json({ error: 'Invalid approval payload' }, { status: 400 });
@@ -40,7 +42,7 @@ export async function POST(request: Request) {
 
     const { data: latestVersion } = await admin
       .from('file_versions')
-      .select('id, status')
+      .select('id, status, files')
       .eq('deliverable_id', deliverableId)
       .order('version', { ascending: false })
       .limit(1)
@@ -50,8 +52,33 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Cannot review a deliverable with no submitted files.' }, { status: 400 });
     }
 
+    if (versionId && versionId !== latestVersion.id) {
+      return NextResponse.json({ error: 'Cannot review an outdated file version. A newer version is available for review.' }, { status: 400 });
+    }
+
     if (latestVersion.status !== 'pending_review') {
       return NextResponse.json({ error: 'Cannot review a deliverable that is not currently pending review.' }, { status: 400 });
+    }
+
+    // Enforce preview availability rule for deliverable review
+    const parsedDesc = parseDescription(deal.description);
+    const previewEnabled = Boolean((deal as any).preview_enabled ?? deal.previewEnabled ?? parsedDesc.previewEnabled);
+    const previewMode = (deal as any).preview_mode || deal.previewMode || (deal.storageProvider === 'google_drive' ? 'EXTERNAL' : 'AUTO');
+    const storageProvider = (deal as any).storage_provider || deal.storageProvider;
+    const files = Array.isArray(latestVersion.files) ? latestVersion.files : [];
+
+    const hasUsablePreview = isUsablePreviewAvailable({
+      previewEnabled,
+      previewMode,
+      storageProvider,
+      files,
+    });
+
+    if (!hasUsablePreview) {
+      return NextResponse.json(
+        { error: 'Deliverable cannot be reviewed without a usable preview.' },
+        { status: 400 }
+      );
     }
 
     if (action === 'approve') {

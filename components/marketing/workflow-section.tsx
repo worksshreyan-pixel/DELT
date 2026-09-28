@@ -108,9 +108,9 @@ export function WorkflowSection() {
             viewport={{ once: true, margin: '-80px' }}
             transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
           >
-            <div className="inline-flex items-center gap-2 rounded-full bg-amber-500/10 border border-amber-500/20 px-3 py-1 font-mono text-xs font-semibold text-amber-600 dark:text-amber-400 mb-3">
+            <div className="inline-flex items-center gap-2 rounded-full bg-accent-brand/10 border border-accent-brand/20 px-3 py-1 text-xs font-semibold text-accent-brand mb-3">
               <Zap className="h-3.5 w-3.5 animate-pulse" />
-              <span>DEAL EXECUTION ENGINE</span>
+              <span>Deal Execution Workflow</span>
             </div>
             <h2 className="text-balance text-3xl font-display font-semibold tracking-tight sm:text-4xl">
               Continuous automated deal progression.
@@ -144,7 +144,7 @@ export function WorkflowSection() {
                   className={cn(
                     'w-full flex items-center justify-between rounded-xl border p-3 text-left transition-all cursor-pointer',
                     isActive
-                      ? 'border-amber-500/80 bg-card/95 shadow-md ring-1 ring-amber-500/20 scale-[1.02] backdrop-blur-md'
+                      ? 'border-accent-brand/80 bg-card/95 shadow-md ring-1 ring-accent-brand/20 scale-[1.02] backdrop-blur-md'
                       : 'border-border/80 bg-card/90 hover:bg-card hover:border-foreground/30 shadow-xs backdrop-blur-md'
                   )}
                 >
@@ -153,14 +153,14 @@ export function WorkflowSection() {
                       {s.stage}
                     </span>
                     <div className="flex items-center gap-2">
-                      <Icon className={cn('h-4 w-4', isActive ? 'text-amber-500' : 'text-muted-foreground')} />
+                      <Icon className={cn('h-4 w-4', isActive ? 'text-accent-brand' : 'text-muted-foreground')} />
                       <span className={cn('text-xs sm:text-sm font-semibold', isActive ? 'text-foreground' : 'text-muted-foreground')}>
                         {s.title}
                       </span>
                     </div>
                   </div>
                   {isActive && (
-                    <span className="h-2 w-2 rounded-full bg-amber-500 animate-ping" />
+                    <span className="h-2 w-2 rounded-full bg-accent-brand animate-ping" />
                   )}
                 </motion.button>
               );
@@ -180,14 +180,14 @@ export function WorkflowSection() {
               >
                 <div className="flex items-center justify-between border-b border-border/40 pb-4">
                   <div className="flex items-center gap-3">
-                    <span className="font-mono text-xl font-bold text-amber-500">
+                    <span className="font-mono text-xl font-bold text-accent-brand">
                       STAGE {current.stage}
                     </span>
                     <h3 className="text-xl font-semibold text-foreground">
                       {current.title}
                     </h3>
                   </div>
-                  <span className="font-mono text-xs font-bold px-2.5 py-1 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                  <span className="font-mono text-xs font-bold px-2.5 py-1 rounded bg-accent-brand/10 text-accent-brand border border-accent-brand/20">
                     {current.stateLabel}
                   </span>
                 </div>
@@ -211,7 +211,7 @@ export function WorkflowSection() {
                   </div>
                   <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
                     <div
-                      className="h-full bg-amber-500 transition-all duration-500"
+                      className="h-full bg-accent-brand transition-all duration-500"
                       style={{ width: `${((activeStage + 1) / WORKFLOW_STAGES.length) * 100}%` }}
                     />
                   </div>
@@ -240,7 +240,7 @@ export function WorkflowSection() {
                     setActiveStage(Math.min(WORKFLOW_STAGES.length - 1, activeStage + 1));
                     setIsPaused(true);
                   }}
-                  className="hover:text-foreground disabled:opacity-30 font-mono text-xs text-amber-600 dark:text-amber-400 font-bold"
+                  className="hover:text-foreground disabled:opacity-30 font-mono text-xs text-accent-brand font-bold"
                 >
                   Next →
                 </button>

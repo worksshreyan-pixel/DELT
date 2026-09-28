@@ -44,7 +44,6 @@ import {
   useSpring,
 } from 'framer-motion';
 import { QRCodeSVG } from 'qrcode.react';
-import PixelCard from '@/components/ui/pixel-card';
 import { getClientDealUrl } from '@/lib/deal-url';
 import { cn } from '@/lib/utils';
 import {
@@ -63,6 +62,7 @@ export interface DealCardProps {
     Deal,
     'dealCode' | 'title' | 'price' | 'currency' | 'status' | 'createdAt' | 'deadline' | 'description' | 'scope'
   >;
+  creatorUsername?: string;
   creatorName?: string;
   clientName?: string;
   deliverablesCount?: number;
@@ -88,6 +88,7 @@ const TILT_SPRING = { stiffness: 180, damping: 22, mass: 0.6 };
 
 export function DealCard({
   deal,
+  creatorUsername,
   creatorName,
   clientName,
   deliverablesCount,
@@ -111,11 +112,10 @@ export function DealCard({
 
   const statusMeta = getDealCardStatusMeta(data.status);
 
-  // Canonical client URL — encoded in the QRs. Deterministic per deal; contains
-  // only the public deal_code locator.
+  // Canonical client URL — encoded in the QRs. Deterministic per deal.
   const dealUrl = React.useMemo(
-    () => (data.dealCode ? getClientDealUrl(data.dealCode) : ''),
-    [data.dealCode]
+    () => (data.dealCode ? getClientDealUrl(data.dealCode, creatorUsername) : ''),
+    [data.dealCode, creatorUsername]
   );
 
   // --- Pointer tilt (workspace variant only, fine pointers, reduced-motion safe)
@@ -166,7 +166,7 @@ export function DealCard({
 
   // ── The full resting card — this entire surface pixelates away on hover. ──
   const cardSurface = (
-    <div className="relative h-full w-full bg-[#0F172A] text-[#F8FAFC]">
+    <div className="relative min-h-[360px] w-full bg-[#0F172A] text-[#F8FAFC]">
       {/* Fine engineering grid — rewards looking closely, stays quiet */}
       <div
         aria-hidden
@@ -302,7 +302,7 @@ export function DealCard({
           style={{
             left: 0,
             borderColor: 'rgba(148, 163, 184, 0.28)',
-            backgroundColor: 'var(--card, #FFFFFF)',
+            backgroundColor: INK.surface,
             boxShadow: 'inset 0 0 0 1px rgba(148,163,184,0.10)',
           }}
         />
@@ -311,7 +311,7 @@ export function DealCard({
           style={{
             left: '100%',
             borderColor: 'rgba(148, 163, 184, 0.28)',
-            backgroundColor: 'var(--card, #FFFFFF)',
+            backgroundColor: INK.surface,
             boxShadow: 'inset 0 0 0 1px rgba(148,163,184,0.10)',
           }}
         />
@@ -442,12 +442,12 @@ export function DealCard({
   // until the next click/tap, on every device.
   const [revealed, setRevealed] = React.useState(false);
 
-  // Embedded: fully static — no canvas/pixel engine, no tilt, no pointer or
-  // keyboard interaction. Renders the resting card only.
-  if (variant === 'embedded') {
+  // Embedded or Share: fully static — no canvas/pixel engine, no tilt, no pointer or
+  // keyboard interaction. Renders the static resting card poster.
+  if (variant === 'embedded' || variant === 'share') {
     return (
-      <div className={cn('relative select-none', className)}>
-        <div className="relative overflow-hidden rounded-xl border border-slate-800">
+      <div ref={surfaceRef} className={cn('relative select-none w-full', className)}>
+        <div className="relative overflow-hidden rounded-xl border border-slate-800 bg-[#0F172A]">
           {cardSurface}
         </div>
       </div>
@@ -469,33 +469,14 @@ export function DealCard({
         style={{ rotateX: rx, rotateY: ry, transformStyle: 'preserve-3d' }}
         className="relative overflow-hidden rounded-xl border border-slate-800"
       >
-        {!enablePixelReveal ? (
-          // Reduced motion (workspace/share): instant state swap, no pixel
-          // sweep. Click still toggles so the interaction is never lost.
-          <div
-            onClick={() => setRevealed((r) => !r)}
-            role="button"
-            aria-label={`Deal ${data.dealCode} — activate to show the deal code`}
-            className="h-full w-full cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/60"
-          >
-            {revealed ? revealedSurface : cardSurface}
-          </div>
-        ) : (
-          <PixelCard
-            className="h-full w-full cursor-pointer"
-            variant="blue"
-            gap={14}
-            speed={60}
-            colors={`${INK.cobalt},#3B82F6,#1E40AF`}
-            pixelSize={9}
-            transitionDuration={700}
-            ariaLabel={`Deal ${data.dealCode} — activate to flip to the deal code`}
-            active={revealed}
-            onToggle={() => setRevealed((r) => !r)}
-            firstContent={cardSurface}
-            secondContent={revealedSurface}
-          />
-        )}
+        <div
+          onClick={() => setRevealed((r) => !r)}
+          role="button"
+          aria-label={`Deal ${data.dealCode} — activate to show the deal code`}
+          className="h-full w-full cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/60"
+        >
+          {revealed ? revealedSurface : cardSurface}
+        </div>
       </motion.div>
     </motion.div>
   );

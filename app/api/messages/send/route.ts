@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { requireClientDealAccess } from '@/lib/deal-auth';
 
 export async function POST(request: Request) {
   try {
@@ -28,15 +29,9 @@ export async function POST(request: Request) {
     const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
 
-    // Check client session token from header
-    const clientSessionHeader = request.headers.get('x-client-session-token');
-    const { verifyClientSessionToken } = await import('@/lib/otp');
-    const hasValidClientToken = clientSessionHeader && deal.token
-      ? verifyClientSessionToken(clientSessionHeader, deal.token, deal.client_email)
-      : false;
-
-    const isCreator = user && user.id === deal.creator_id;
-    const isClient = (user && user.email?.toLowerCase() === deal.client_email?.toLowerCase()) || hasValidClientToken;
+    const isCreator = Boolean(user && user.id === deal.creator_id);
+    const clientAuth = await requireClientDealAccess(request, dealId);
+    const isClient = Boolean(clientAuth.authorized);
 
     if (senderRole === 'client') {
       if (isCreator) {

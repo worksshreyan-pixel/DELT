@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { resolveDealByCode, requireCreatorDealAccess, requireClientDealAccess } from '@/lib/deal-auth';
 
 export async function POST(request: Request) {
   try {
@@ -11,46 +11,46 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Valid proposed price is required' }, { status: 400 });
     }
 
-    const admin = createAdminClient();
-
-    // Fetch deal
-    const { data: deal, error: dealError } = await admin
-      .from('deals')
-      .select('*')
-      .eq('id', dealId)
-      .maybeSingle();
-
-    if (dealError || !deal) {
+    // 1. Canonical deal identity resolution (supports deal.id UUID, deal_code, or token)
+    const resolution = await resolveDealByCode(dealId);
+    if (!resolution || !resolution.deal) {
       return NextResponse.json({ error: 'Deal not found' }, { status: 404 });
     }
 
-    const supabase = await createServerSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const deal = resolution.deal;
+    const admin = createAdminClient();
 
-    // Check client session token from header
-    const clientSessionHeader = request.headers.get('x-client-session-token');
-    const { verifyClientSessionToken } = await import('@/lib/otp');
-    const hasValidClientToken = clientSessionHeader && deal.token
-      ? verifyClientSessionToken(clientSessionHeader, deal.token, deal.client_email)
-      : false;
+    // 2. Agreement status check: Negotiation closed once agreement is accepted
+    const { data: acceptedContract } = await admin
+      .from('deal_contracts')
+      .select('id, status')
+      .eq('deal_id', deal.id)
+      .eq('status', 'accepted')
+      .maybeSingle();
 
-    const isCreator = user && user.id === deal.creator_id;
-    const isClient = (user && user.email?.toLowerCase() === deal.client_email?.toLowerCase()) || hasValidClientToken;
+    if (acceptedContract) {
+      return NextResponse.json(
+        { error: 'Negotiation is closed because the agreement has already been accepted.' },
+        { status: 400 }
+      );
+    }
 
+    // 3. Robust role-based access authorization
     if (proposedByRole === 'client') {
-      if (isCreator) {
-        return NextResponse.json({ error: 'Creators cannot propose prices as client.' }, { status: 403 });
-      }
-      if (!isClient) {
+      const clientAuth = await requireClientDealAccess(request, dealId);
+      if (!clientAuth.authorized) {
         return NextResponse.json({ error: 'Unauthorized client access.' }, { status: 403 });
       }
     } else if (proposedByRole === 'creator') {
-      if (!isCreator) {
+      const creatorAuth = await requireCreatorDealAccess(dealId);
+      if (!creatorAuth.authorized) {
         return NextResponse.json({ error: 'Unauthorized creator access.' }, { status: 403 });
       }
+    } else {
+      return NextResponse.json({ error: 'Invalid proposedByRole parameter.' }, { status: 400 });
     }
 
-    // Concurrency Check: Check for active pending proposals for this deal
+    // 4. Concurrency check: Check for active pending proposals for this deal
     const { data: existingPending, error: existError } = await admin
       .from('price_proposals')
       .select('id, state, direction')
@@ -91,7 +91,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // 1. Create immutable proposal record
+    // 5. Create immutable proposal record
     const { data: proposal, error: propError } = await admin
       .from('price_proposals')
       .insert({
@@ -113,7 +113,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: propError?.message || 'Failed to submit proposal' }, { status: 500 });
     }
 
-    // 1.5 Update parent proposal state to countered
+    // 5.5 Update parent proposal state to countered
     if (parentProposalId) {
       await admin
         .from('price_proposals')
@@ -124,7 +124,7 @@ export async function POST(request: Request) {
         .eq('id', parentProposalId);
     }
 
-    // 2. Update Deal status to negotiating
+    // 6. Update Deal status to negotiating
     await admin
       .from('deals')
       .update({
@@ -134,7 +134,7 @@ export async function POST(request: Request) {
       })
       .eq('id', deal.id);
 
-    // 3. Post proposal message in deal_messages
+    // 7. Post proposal message in deal_messages
     await admin.from('deal_messages').insert({
       deal_id: deal.id,
       sender_id: proposedById || 'participant',
@@ -145,7 +145,7 @@ export async function POST(request: Request) {
       proposal_id: proposal.id,
     });
 
-    // 4. Create timeline audit event
+    // 8. Create timeline audit event
     await admin.from('deal_events').insert({
       deal_id: deal.id,
       type: 'price_proposed',
@@ -155,13 +155,13 @@ export async function POST(request: Request) {
       description: `${proposedByName} proposed price change to ${priceNum} ${deal.currency}`,
     });
 
-    // 5. Send notification to creator if proposed by client
+    // 9. Send notification to creator if proposed by client
     if (proposedByRole === 'client') {
       await admin.from('notifications').insert({
-        user_id: deal.creator_id,
+        user_id: deal.creatorId,
         type: 'new_proposal',
         title: 'New Price Proposal',
-        description: `${deal.client_name} proposed ${priceNum} ${deal.currency} for "${deal.title}"`,
+        description: `${deal.clientName} proposed ${priceNum} ${deal.currency} for "${deal.title}"`,
         deal_id: deal.id,
         deal_title: deal.title,
         read: false,

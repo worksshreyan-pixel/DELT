@@ -26,7 +26,7 @@ export function MaskedHeading({
             <motion.span
               className={cn(
                 'inline-block',
-                isLast && 'text-transparent bg-clip-text bg-gradient-to-r from-foreground via-foreground to-amber-500'
+                isLast && 'text-transparent bg-clip-text bg-gradient-to-r from-foreground via-foreground to-accent-brand'
               )}
               initial={{ y: '105%', opacity: 0 }}
               animate={{ y: '0%', opacity: 1 }}
