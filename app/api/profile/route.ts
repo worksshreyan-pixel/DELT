@@ -71,15 +71,45 @@ export async function POST(req: NextRequest) {
     if (company !== undefined) updatePayload.company = company;
     if (avatarUrl !== undefined) updatePayload.avatar_url = avatarUrl;
 
-    const { data: updated, error } = await admin
+    // Check if profile exists
+    const { data: existingProfile } = await admin
       .from('profiles')
-      .upsert({
-        id: user.id,
-        email: user.email || '',
-        ...updatePayload,
-      })
       .select('*')
-      .single();
+      .eq('id', user.id)
+      .maybeSingle();
+
+    let updated = null;
+    let error = null;
+
+    if (existingProfile) {
+      // Profile exists: update ONLY the provided fields in updatePayload
+      const res = await admin
+        .from('profiles')
+        .update(updatePayload)
+        .eq('id', user.id)
+        .select('*')
+        .single();
+      updated = res.data;
+      error = res.error;
+    } else {
+      // Profile does not exist: insert a new row with required column defaults
+      const defaultDisplayName = displayName || user.user_metadata?.displayName || user.email?.split('@')[0] || 'Creator';
+      const defaultUsername = updatePayload.username || (user.email ? normalizeUsername(user.email.split('@')[0]) : 'creator');
+
+      const res = await admin
+        .from('profiles')
+        .insert({
+          id: user.id,
+          email: user.email || '',
+          display_name: defaultDisplayName,
+          username: defaultUsername,
+          ...updatePayload,
+        })
+        .select('*')
+        .single();
+      updated = res.data;
+      error = res.error;
+    }
 
     if (error) {
       console.error('Error updating profile:', error);

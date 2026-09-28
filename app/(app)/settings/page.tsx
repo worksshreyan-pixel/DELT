@@ -36,6 +36,7 @@ import { hasSupabasePublicConfig } from '@/lib/env';
 import { PLANS, formatCurrency } from '@/lib/plans';
 import { cn } from '@/lib/utils';
 import { BillingFinancialCenter } from '@/components/billing-financial-center';
+import { AvatarCropperModal } from '@/components/avatar-cropper-modal';
 
 const sections = [
   { id: 'profile', label: 'Profile', icon: User },
@@ -108,8 +109,12 @@ export default function SettingsPage() {
 
   const plan = PLANS[store.credits.planId] || PLANS.free;
 
-  async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  const [cropModalOpen, setCropModalOpen] = useState(false);
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+
+  function handleAvatarFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    if (avatarInputRef.current) avatarInputRef.current.value = '';
     if (!file) return;
 
     setProfileError('');
@@ -118,16 +123,29 @@ export default function SettingsPage() {
       return;
     }
 
-    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
     if (!allowed.includes(file.type)) {
-      setProfileError('Invalid image format. Please select a JPG, PNG, WebP, or SVG image.');
+      setProfileError('Invalid image format. Please select a JPG, PNG, or WebP image.');
       return;
     }
 
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      if (result) {
+        setCropImageSrc(result);
+        setCropModalOpen(true);
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handleCropSave(croppedBlob: Blob) {
     setAvatarUploading(true);
+    setProfileError('');
     try {
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('file', croppedBlob, 'avatar.png');
 
       const res = await fetch('/api/profile/avatar', {
         method: 'POST',
@@ -137,12 +155,13 @@ export default function SettingsPage() {
       const data = await res.json();
       if (!res.ok) {
         setProfileError(data.error || 'Failed to upload avatar.');
-        setAvatarUploading(false);
         return;
       }
 
       setAvatarUrl(data.avatarUrl);
       await refresh();
+      setCropModalOpen(false);
+      setCropImageSrc(null);
     } catch (err: any) {
       console.error('Avatar upload error:', err);
       setProfileError('An unexpected error occurred during avatar upload.');
@@ -260,8 +279,8 @@ export default function SettingsPage() {
                 <input
                   type="file"
                   ref={avatarInputRef}
-                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                  onChange={handleAvatarUpload}
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={handleAvatarFileSelect}
                   className="hidden"
                 />
                 <div className="flex items-center gap-4">
@@ -284,9 +303,20 @@ export default function SettingsPage() {
                     >
                       {avatarUploading ? 'Uploading...' : 'Change avatar'}
                     </Button>
-                    <p className="text-xs text-muted-foreground mt-1.5">JPG, PNG, WebP or SVG. Max 2MB.</p>
+                    <p className="text-xs text-muted-foreground mt-1.5">JPG, PNG, or WebP • Max 2MB.</p>
                   </div>
                 </div>
+
+                <AvatarCropperModal
+                  isOpen={cropModalOpen}
+                  imageSrc={cropImageSrc}
+                  onClose={() => {
+                    setCropModalOpen(false);
+                    setCropImageSrc(null);
+                  }}
+                  onSave={handleCropSave}
+                  isUploading={avatarUploading}
+                />
 
                 {profileError && (
                   <div className="flex items-center gap-2 rounded-lg bg-destructive/10 p-2.5 text-xs text-destructive">

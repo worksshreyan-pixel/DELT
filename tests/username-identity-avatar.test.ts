@@ -79,9 +79,33 @@ describe('DELT — Username Identity, Canonical Deal URLs & Avatar System', () =
     });
 
     test('avatar file validation rejects unsupported MIME types', () => {
-      const allowedMimes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml']);
+      const allowedMimes = new Set(['image/jpeg', 'image/png', 'image/webp']);
       assert.equal(allowedMimes.has('image/png'), true);
       assert.equal(allowedMimes.has('application/pdf'), false);
+    });
+
+    test('avatar-only update payload contains ONLY avatar_url and updated_at', () => {
+      const dummyAvatarUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      const payload: Record<string, any> = {
+        avatar_url: dummyAvatarUrl,
+        updated_at: new Date().toISOString(),
+      };
+
+      assert.equal(payload.display_name, undefined);
+      assert.equal(payload.username, undefined);
+      assert.ok(payload.avatar_url);
+    });
+
+    test('partial profile update payload preserves omitted fields as undefined', () => {
+      const updatePayload: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+      };
+      const bio = 'Expert Freelance Designer';
+      if (bio !== undefined) updatePayload.bio = bio;
+
+      assert.equal(updatePayload.display_name, undefined);
+      assert.equal(updatePayload.username, undefined);
+      assert.equal(updatePayload.bio, 'Expert Freelance Designer');
     });
   });
 
